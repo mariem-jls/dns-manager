@@ -1,0 +1,170 @@
+version: "3.8"
+
+services:
+  # ============================================
+  # SERVEUR DNS BIND9 (PRIMARY)
+  # ============================================
+  bind9:
+    image: ubuntu/bind9:latest
+    container_name: dns-primary
+    hostname: ns1.dynamix.com
+    restart: unless-stopped
+    ports:
+      - "5353:53/tcp"
+      - "5353:53/udp"
+      - "8053:8053/tcp"      
+    volumes:
+      - ./bind9/config:/etc/bind
+      - ./bind9/zones:/var/lib/bind
+      - ./bind9/cache:/var/cache/bind
+      - ./bind9/logs:/var/log/named
+    environment:
+      - TZ=Europe/Paris
+    networks:
+      - dns-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # SERVEUR DNS BIND9 (SECONDARY)
+  # ============================================
+  bind9-secondary:
+    image: ubuntu/bind9:latest
+    container_name: dns-secondary
+    hostname: ns2.dynamix.com
+    restart: unless-stopped
+    ports:
+      - "5300:53/tcp"
+      - "5300:53/udp"
+    volumes:
+      - ./bind9-secondary/config:/etc/bind
+      - ./bind9-secondary/zones:/var/lib/bind
+      - ./bind9-secondary/cache:/var/cache/bind
+    environment:
+      - TZ=Europe/Paris
+    networks:
+      - dns-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # BASE DE DONNÉES POSTGRESQL
+  # ============================================
+  postgres:
+    image: postgres:15
+    container_name: dns-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-root}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-root}
+      POSTGRES_DB: ${POSTGRES_DB:-dnsmanager}
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./postgres/data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d  
+    networks:
+      - dns-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # MONITORING - PROMETHEUS
+  # ============================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: dns-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - dns-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # MONITORING - GRAFANA
+  # ============================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: dns-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/etc/grafana/dashboards
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-root}
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+    depends_on:
+      - prometheus
+    networks:
+      - dns-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # BIND EXPORTER (métriques pour Prometheus)
+  # ============================================
+  bind-exporter:
+    image: prometheuscommunity/bind-exporter:latest
+    container_name: dns-exporter
+    restart: unless-stopped
+    ports:
+      - "9119:9119"
+    environment:
+      - BIND_EXPORTER_OPTS=--bind.stats-url=http://bind9:8053 --bind.timeout=5s
+    depends_on:
+      - bind9
+    networks:
+      - dns-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# ============================================
+# RÉSEAUX
+# ============================================
+networks:
+  dns-network:
+    driver: bridge
+    name: dns-network
+
+# ============================================
+# VOLUMES PERSISTANTS
+# ============================================
+volumes:
+  prometheus-data:
+    name: prometheus-data
+  grafana-data:
+    name: grafana-data

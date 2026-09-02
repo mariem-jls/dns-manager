@@ -1,0 +1,21 @@
+key "axfr-key" {
+    algorithm hmac-sha256;
+    secret "yNIdcK6cOYQBjNJxlmgGYenGqG9zA8yiE9hLTyMYgKQ=";
+};
+
+zone "dynamix.com" {
+    type master;
+    file "/var/lib/bind/db.dynamix.com";
+    notify yes;
+    also-notify { 172.29.0.2; };
+    allow-transfer { key "axfr-key"; };
+};
+
+zone "1.168.192.in-addr.arpa" {
+    type master;
+    file "/var/lib/bind/db.1.168.192.rev";
+    notify yes;
+    also-notify { 172.29.0.2; };
+    allow-transfer { key "axfr-key"; };
+};
+
