@@ -1,0 +1,29 @@
+version: '3.8'
+services:
+  backend:
+    build: ./backend
+    volumes:
+      - ./backend:/app
+      - ./bind9/zones:/etc/bind/zones:rw
+    environment:
+      - SECRET_KEY=dev-secret
+      - BIND_ZONES_PATH=/etc/bind/zones
+    ports:
+      - "8000:8000"
+    networks:
+      - dns-network
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    networks:
+      - dns-network
+
+networks:
+  dns-network:
+    external: true

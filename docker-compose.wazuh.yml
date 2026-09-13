@@ -1,0 +1,36 @@
+version: "3.8"
+
+services:
+  wazuh-manager:
+    image: wazuh/wazuh-manager:4.14.7
+    container_name: wazuh-manager
+    restart: unless-stopped
+    ports:
+      - "55000:55000"
+    volumes:
+      - ./wazuh/data:/var/ossec/data
+      - ./wazuh/logs:/var/ossec/logs
+    environment:
+      - TZ=Europe/Paris
+    networks:
+      - dns-network
+
+  wazuh-exporter:
+    image: kennyopennix/wazuh-exporter:latest
+    container_name: wazuh-exporter
+    restart: unless-stopped
+    ports:
+      - "9116:5000"
+    environment:
+      - WAZUH_API_HOST=wazuh-manager
+      - WAZUH_API_PORT=55000
+      - WAZUH_API_USERNAME=wazuh
+      - WAZUH_API_PASSWORD=wazuh
+    depends_on:
+      - wazuh-manager
+    networks:
+      - dns-network
+
+networks:
+  dns-network:
+    external: true
