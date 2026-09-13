@@ -1,0 +1,58 @@
+# Docker
+*.log
+*.pid
+.env
+/data/
+/grafana/data/
+/prometheus/data/
+postgres/data/
+bind9/logs/
+bind9/cache/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Node
+node_modules/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+
+# .gitignore
+# Fichiers sensibles
+.env
+*.env
+.env.*
+!.env.example
+
+# Données Docker
+/postgres/data/
+/bind9/cache/
+/bind9/logs/
+/prometheus/data/
+/grafana/data/
+
+# Backend
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Frontend
+node_modules/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
