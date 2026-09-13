@@ -12,7 +12,7 @@ services:
     ports:
       - "5353:53/tcp"
       - "5353:53/udp"
-      - "8053:8053/tcp"      
+      - "8053:8053/tcp"
     volumes:
       - ./bind9/config:/etc/bind
       - ./bind9/zones:/var/lib/bind
@@ -68,7 +68,7 @@ services:
       - "5432:5432"
     volumes:
       - ./postgres/data:/var/lib/postgresql/data
-      - ./postgres/init:/docker-entrypoint-initdb.d  
+      - ./postgres/init:/docker-entrypoint-initdb.d
     networks:
       - dns-network
     logging:
@@ -144,6 +144,52 @@ services:
       - BIND_EXPORTER_OPTS=--bind.stats-url=http://bind9:8053 --bind.timeout=5s
     depends_on:
       - bind9
+    networks:
+      - dns-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # WAZUH MANAGER
+  # ============================================
+  wazuh-manager:
+    image: wazuh/wazuh-manager:4.14.7
+    container_name: wazuh-manager
+    restart: unless-stopped
+    ports:
+      - "55000:55000"
+    volumes:
+      - ./wazuh/data:/var/ossec/data
+      - ./wazuh/logs:/var/ossec/logs
+    environment:
+      - TZ=Europe/Paris
+    networks:
+      - dns-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # WAZUH EXPORTER
+  # ============================================
+  wazuh-exporter:
+    image: kennyopennix/wazuh-exporter:latest
+    container_name: wazuh-exporter
+    restart: unless-stopped
+    ports:
+      - "9116:5000"
+    environment:
+      - WAZUH_API_HOST=wazuh-manager
+      - WAZUH_API_PORT=55000
+      - WAZUH_API_USERNAME=wazuh
+      - WAZUH_API_PASSWORD=wazuh
+    depends_on:
+      - wazuh-manager
     networks:
       - dns-network
     logging:
