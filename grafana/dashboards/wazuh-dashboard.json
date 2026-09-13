@@ -1,0 +1,29 @@
+{
+  "uid": "wazuh-exporter",
+  "title": "Wazuh Exporter",
+  "schemaVersion": 36,
+  "version": 1,
+  "refresh": "15s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Wazuh Agents",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "options": {},
+      "targets": [
+        { "expr": "max(wazuh_total_agent)", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Exporter Resident Memory",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "options": {},
+      "targets": [
+        { "expr": "process_resident_memory_bytes", "refId": "B" }
+      ]
+    }
+  ],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" }
+}

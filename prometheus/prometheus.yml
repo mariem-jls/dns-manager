@@ -1,0 +1,17 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'bind9'
+    static_configs:
+      - targets: ['bind-exporter:9119']
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'wazuh'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['wazuh-exporter:5000']

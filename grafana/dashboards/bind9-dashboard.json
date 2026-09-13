@@ -1,0 +1,33 @@
+{
+  "annotations": {"list": []},
+  "description": "Simple Bind9 health dashboard",
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "id": null,
+  "iteration": 162254,
+  "links": [],
+  "panels": [
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+      "id": 2,
+      "options": {},
+      "targets": [
+        {"expr": "up{job=\"bind9\"}", "legendFormat": "bind9 up"}
+      ],
+      "title": "Bind9 Up",
+      "type": "stat"
+    }
+  ],
+  "schemaVersion": 30,
+  "style": "dark",
+  "tags": ["bind9","dns","prometheus"],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Bind9 Overview",
+  "uid": "bind9-overview"
+}
