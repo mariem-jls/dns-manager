@@ -3,16 +3,40 @@ import Layout from '../../components/Layout/Layout'
 import Card from '../../components/UI/Card'
 import LineChart from '../../components/Charts/LineChart'
 import client from '../../api/client'
+import Alert from '../../components/UI/Alert'
+
 
 export default function Dashboard(){
   const [stats, setStats] = useState<any>(null)
-  const [series, setSeries] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  useEffect(()=>{
-    client.get('/api/monitoring/stats').then(r=>setStats(r.data)).catch(()=>setStats(null))
-    // dummy series
-    setSeries(Array.from({length:30}).map((_,i)=>({ts: i, value: Math.round(Math.random()*100)})))
-  },[])
+  useEffect(() => {
+    setLoading(true)
+    client.get('/api/monitoring/stats')
+      .then(r => {
+        setStats(r.data)
+        // Si le backend dit available:false, c'est une erreur explicite
+        if (r.data?.available === false) {
+          setError(r.data?.message ?? 'Prometheus ne répond pas.')
+        } else {
+          setError(null)
+        }
+      })
+      .catch(() => {
+        setStats(null)
+        setError('Impossible de contacter le backend.')
+      })
+      .finally(() => setLoading(false))
+  }, [])
+
+  // Plus aucune courbe inventée
+  const series: any[] = []
+
+  const requestRate = stats?.request_rate
+  const requestRateDisplay = requestRate !== null && requestRate !== undefined
+    ? Math.round(requestRate).toLocaleString()
+    : '—'
 
   return (
     <Layout>
@@ -25,25 +49,35 @@ export default function Dashboard(){
           </p>
         </div>
         <div className="rounded-full border border-[#d0d7de] bg-white px-3 py-1 text-sm text-[#586069] shadow-sm">
-          Primary et Secondary synchronisés
+          {loading ? 'Chargement...' : 'Données en direct'}
         </div>
       </div>
+
+
+
+{error && (
+  <Alert variant="warning" title="Attention">
+    {error}
+  </Alert>
+)}
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="border border-[#d0d7de] shadow-[0_1px_2px_rgba(27,31,36,0.04)]">
           <div className="text-sm text-[#586069]">Zones actives</div>
-          <div className="mt-2 text-3xl font-bold text-[#24292f]">12</div>
-          <div className="mt-2 text-sm text-green-700">+2 cette semaine</div>
+          <div className="mt-2 text-3xl font-bold text-[#24292f]">—</div>
+          <div className="mt-2 text-sm text-[#586069]">Source : API zones</div>
         </Card>
         <Card className="border border-[#d0d7de] shadow-[0_1px_2px_rgba(27,31,36,0.04)]">
           <div className="text-sm text-[#586069]">Enregistrements</div>
-          <div className="mt-2 text-3xl font-bold text-[#24292f]">124</div>
+          <div className="mt-2 text-3xl font-bold text-[#24292f]">—</div>
           <div className="mt-2 text-sm text-[#586069]">A / AAAA / MX / CNAME</div>
         </Card>
         <Card className="border border-[#d0d7de] shadow-[0_1px_2px_rgba(27,31,36,0.04)]">
-          <div className="text-sm text-[#586069]">Requêtes/jour</div>
-          <div className="mt-2 text-3xl font-bold text-[#24292f]">{stats?.data ?? '—'}</div>
-          <div className="mt-2 text-sm text-[#586069]">Source Prometheus</div>
+          <div className="text-sm text-[#586069]">Requêtes/sec</div>
+          <div className="mt-2 text-3xl font-bold text-[#24292f]">{requestRateDisplay}</div>
+          <div className="mt-2 text-sm text-[#586069]">
+            {requestRate !== null && requestRate !== undefined ? 'Source Prometheus' : 'Indisponible'}
+          </div>
         </Card>
       </div>
 
@@ -52,7 +86,13 @@ export default function Dashboard(){
           <h3 className="text-base font-semibold text-[#24292f]">Requêtes/sec sur 30 minutes</h3>
           <span className="text-sm text-[#586069]">Mise à jour automatique</span>
         </div>
-        <LineChart data={series} />
+        {series.length === 0 ? (
+          <div className="py-12 text-center text-sm text-[#586069]">
+            Aucune donnée disponible — Prometheus ne renvoie pas de série temporelle.
+          </div>
+        ) : (
+          <LineChart data={series} />
+        )}
       </Card>
     </Layout>
   )

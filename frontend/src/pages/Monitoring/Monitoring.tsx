@@ -1,16 +1,16 @@
-import React, { useMemo } from 'react'
+import React from 'react'
 import Layout from '../../components/Layout/Layout'
 import Card from '../../components/UI/Card'
+import Alert from '../../components/UI/Alert'
 import Gauge from '../../components/Charts/Gauge'
 import PieChart from '../../components/Charts/PieChart'
 import LineChart from '../../components/Charts/LineChart'
-import { useMonitoringStats, useTopDomains, useAlerts, useMonitoringHealth } from '../../hooks/useMonitoring'
-
-function getPrometheusValue(stats: any, fallback = 0): number {
-  const value = stats?.request_rate ?? stats?.data?.result?.[0]?.value?.[1]
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : fallback
-}
+import {
+  useMonitoringStats,
+  useTopDomains,
+  useAlerts,
+  useMonitoringHealth,
+} from '../../hooks/useMonitoring'
 
 export default function MonitoringPage(){
   const { data: stats, isLoading } = useMonitoringStats()
@@ -18,25 +18,19 @@ export default function MonitoringPage(){
   const { data: alertsData, isLoading: alertsLoading } = useAlerts()
   const { data: health } = useMonitoringHealth()
 
-  const series = useMemo(() => {
-    return Array.from({ length: 30 }).map((_, index) => ({
-      ts: `${index}m`,
-      value: Math.max(10, Math.round(55 + Math.sin(index / 3) * 20 + index % 7)),
-    }))
-  }, [])
+  // Plus aucune série inventée
+  const series: any[] = []
 
-  const requestRate = getPrometheusValue(stats, 1240)
-  const cacheHitRate = Number(stats?.cache_hit_rate ?? 92)
-  const latency = Number(stats?.latency_ms ?? 18)
-  const errorRate = Number(stats?.error_rate ?? 1.2)
+  // Plus aucun fallback en dur
+  const requestRate = stats?.request_rate ?? null
+  const cacheHitRate = stats?.cache_hit_rate ?? null
+  const latency = stats?.latency_ms ?? null
+  const errorRate = stats?.error_rate ?? null
 
-  const trafficDistribution = [
-    { name: 'A', value: 44 },
-    { name: 'AAAA', value: 22 },
-    { name: 'MX', value: 12 },
-    { name: 'CNAME', value: 14 },
-    { name: 'Autres', value: 8 },
-  ]
+  const statsUnavailable = stats?.available === false
+
+  // Plus de camembert inventé
+  const trafficDistribution: any[] = []
 
   return (
     <Layout>
@@ -49,15 +43,39 @@ export default function MonitoringPage(){
           </p>
         </div>
         <div className="rounded-full border border-[#d0d7de] bg-white px-3 py-1 text-sm text-[#586069] shadow-sm">
-          {isLoading ? 'Actualisation...' : 'Collecte active'}
+          {isLoading ? 'Actualisation...' : statsUnavailable ? 'Prometheus indisponible' : 'Collecte active'}
         </div>
       </div>
 
+
+
+{statsUnavailable && (
+  <Alert variant="warning" title="Attention">
+    {stats?.message ?? 'Prometheus ne répond pas. Les métriques ne sont pas disponibles.'}
+  </Alert>
+)}
+
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Gauge label="Requêtes/sec" value={Math.min(100, Math.round(requestRate / 20))} suffix="" />
-        <Gauge label="Cache hit rate" value={cacheHitRate} />
-        <Gauge label="Latence moyenne" value={Math.max(5, 100 - latency * 3)} suffix="ms" />
-        <Gauge label="Taux d'erreur" value={errorRate * 10} suffix="%" />
+        <Gauge
+          label="Requêtes/sec"
+          value={requestRate !== null ? Math.min(100, Math.round(requestRate / 20)) : 0}
+          suffix=""
+        />
+        <Gauge
+          label="Cache hit rate"
+          value={cacheHitRate !== null ? cacheHitRate : 0}
+          suffix="%"
+        />
+        <Gauge
+          label="Latence moyenne"
+          value={latency !== null ? Math.max(0, 100 - latency * 3) : 0}
+          suffix="ms"
+        />
+        <Gauge
+          label="Taux d'erreur"
+          value={errorRate !== null ? Math.min(100, errorRate * 10) : 0}
+          suffix="%"
+        />
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.6fr_1fr]">
@@ -66,7 +84,13 @@ export default function MonitoringPage(){
             <h2 className="text-base font-semibold text-[#24292f]">Requêtes/sec</h2>
             <span className="text-sm text-[#586069]">30 dernières minutes</span>
           </div>
-          <LineChart data={series} />
+          {series.length === 0 ? (
+            <div className="py-12 text-center text-sm text-[#586069]">
+              Aucune série temporelle disponible.
+            </div>
+          ) : (
+            <LineChart data={series} />
+          )}
         </Card>
 
         <Card className="border border-[#d0d7de] shadow-[0_1px_2px_rgba(27,31,36,0.04)]">
@@ -74,7 +98,13 @@ export default function MonitoringPage(){
             <h2 className="text-base font-semibold text-[#24292f]">Répartition des requêtes</h2>
             <span className="text-sm text-[#586069]">Types DNS</span>
           </div>
-          <PieChart data={trafficDistribution} />
+          {trafficDistribution.length === 0 ? (
+            <div className="py-12 text-center text-sm text-[#586069]">
+              Répartition indisponible.
+            </div>
+          ) : (
+            <PieChart data={trafficDistribution} />
+          )}
         </Card>
       </div>
 
@@ -86,6 +116,11 @@ export default function MonitoringPage(){
           </div>
           <div className="divide-y divide-[#d0d7de]">
             {topDomainsLoading && <div className="py-4 text-sm text-[#586069]">Chargement...</div>}
+            {!topDomainsLoading && (topDomainsData?.items?.length ?? 0) === 0 && (
+              <div className="py-6 text-sm text-[#586069]">
+                {topDomainsData?.message ?? 'Aucun domaine mesuré.'}
+              </div>
+            )}
             {topDomainsData?.items?.map((item: any, index: number) => (
               <div key={item.domain} className="flex items-center justify-between py-3">
                 <div className="flex items-center gap-3">
@@ -95,7 +130,9 @@ export default function MonitoringPage(){
                     <div className="text-sm text-[#586069]">Trafic DNS observé</div>
                   </div>
                 </div>
-                <div className="text-sm font-semibold text-[#24292f]">{item.hits.toLocaleString()}</div>
+                <div className="text-sm font-semibold text-[#24292f]">
+                  {typeof item.hits === 'number' ? item.hits.toLocaleString() : '—'}
+                </div>
               </div>
             ))}
           </div>
