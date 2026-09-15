@@ -1,13 +1,31 @@
+acl LAN {
+    192.168.1.0/24;      // Réseau Wi-Fi
+    172.17.0.0/16;       // Docker par défaut
+    172.18.0.0/16;       // Docker bridge
+    172.19.0.0/16;       // Docker bridge
+    172.29.0.0/16;       // Réseau Docker du projet
+    127.0.0.1;
+};
+
 options {
     directory "/var/cache/bind";
     listen-on { any; };
     listen-on-v6 { any; };
-    allow-query { any; };
-    allow-recursion { any; };
+
+    allow-query { LAN; };
+    allow-recursion { LAN; };
     allow-transfer { none; };
     allow-update { none; };
-    forwarders { 1.1.1.1; 8.8.8.8; };
+
+    forwarders {
+        1.1.1.1;
+        8.8.8.8;
+    };
     recursion yes;
+
     dnssec-validation auto;
+
     version "not available";
+    minimal-responses yes;
+    max-cache-size 256M;
 };

@@ -223,7 +223,7 @@ services:
       - WAZUH_URL=http://wazuh-manager:55000
       - WAZUH_USER=${WAZUH_USER}
       - WAZUH_PASS=${WAZUH_PASS}
-      - SECRET_KEY=${SECRET_KEY}
+      #- SECRET_KEY=${SECRET_KEY}
     depends_on:
       - bind9
       - prometheus
