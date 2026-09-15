@@ -69,3 +69,7 @@ docker-compose.override.yml
 docker-compose.*.bak
 
 bind9/config/tsig.key
+
+# BIND9 rndc keys (secrets)
+bind9/config/rndc.key
+bind9-secondary/config/rndc.key

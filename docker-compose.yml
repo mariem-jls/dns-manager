@@ -20,6 +20,12 @@ services:
       - ./bind9/logs:/var/log/named
     environment:
       - TZ=Europe/Paris
+    healthcheck:
+      test: ["CMD-SHELL", "named-checkconf /etc/bind/named.conf || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     networks:
       - dns-network
     logging:
@@ -45,14 +51,20 @@ services:
       - ./bind9-secondary/cache:/var/cache/bind
     environment:
       - TZ=Europe/Paris
+    healthcheck:
+      test: ["CMD-SHELL", "named-checkconf /etc/bind/named.conf || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     networks:
-      - dns-network
+      dns-network:
+        ipv4_address: 172.25.0.4
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
-
   # ============================================
   # BASE DE DONNÉES POSTGRESQL
   # ============================================
@@ -69,6 +81,12 @@ services:
     volumes:
       - ./postgres/data:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - dns-network
     logging:
@@ -95,6 +113,12 @@ services:
       - '--web.console.libraries=/etc/prometheus/console_libraries'
       - '--web.console.templates=/etc/prometheus/consoles'
       - '--web.enable-lifecycle'
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:9090/-/healthy || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     networks:
       - dns-network
     logging:
@@ -123,6 +147,12 @@ services:
       - GF_AUTH_ANONYMOUS_ENABLED=false
       - GF_PLUGINS_PREINSTALL_DISABLED=true
       - GF_INSTALL_PLUGINS=
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     depends_on:
       - prometheus
     networks:
@@ -168,6 +198,12 @@ services:
       - ./wazuh/logs:/var/ossec/logs
     environment:
       - TZ=Europe/Paris
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fk https://localhost:55000/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
     networks:
       - dns-network
     logging:
@@ -223,7 +259,15 @@ services:
       - WAZUH_URL=http://wazuh-manager:55000
       - WAZUH_USER=${WAZUH_USER}
       - WAZUH_PASS=${WAZUH_PASS}
-      #- SECRET_KEY=${SECRET_KEY}
+      - SECRET_KEY=${SECRET_KEY}
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     depends_on:
       - bind9
       - prometheus
@@ -250,6 +294,12 @@ services:
     restart: unless-stopped
     ports:
       - "8080:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:80 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     depends_on:
       - backend
     networks:
@@ -267,6 +317,9 @@ networks:
   dns-network:
     driver: bridge
     name: dns-network
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
 
 # ============================================
 # VOLUMES PERSISTANTS

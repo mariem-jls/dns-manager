@@ -3,18 +3,18 @@ key "axfr-key" {
     secret "yNIdcK6cOYQBjNJxlmgGYenGqG9zA8yiE9hLTyMYgKQ=";
 };
 
-server 172.29.0.4 {
+server 172.25.0.2 {
     keys { "axfr-key"; };
 };
 
 zone "dynamix.com" {
     type slave;
-    masters { 172.29.0.4 port 53; };
+    masters { 172.25.0.2 port 53; };
     file "/var/lib/bind/db.dynamix.com";
 };
 
 zone "1.168.192.in-addr.arpa" {
     type slave;
-    masters { 172.29.0.4 port 53; };
+    masters { 172.25.0.2 port 53; };
     file "/var/lib/bind/db.1.168.192.rev";
 };
