@@ -67,3 +67,5 @@ wazuh/
 # Compose overrides locaux
 docker-compose.override.yml
 docker-compose.*.bak
+
+bind9/config/tsig.key
