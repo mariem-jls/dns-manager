@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import jwt
 from app.config import settings
@@ -10,7 +10,7 @@ router = APIRouter()
 _demo_user = {"id":1, "email":"admin@dynamix.com", "role":"admin"}
 
 @router.post("/login")
-async def login(form_data: OAuth2PasswordRequestForm = None):
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     # WARNING: replace with Supabase auth in production
     if form_data.username == "admin@dynamix.com" and form_data.password == "password":
         payload = {"user": _demo_user, "exp": datetime.utcnow() + timedelta(hours=8)}

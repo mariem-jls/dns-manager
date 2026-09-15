@@ -1,29 +1,31 @@
 version: '3.8'
+
+# Surcharge dev : à utiliser avec
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# Elle :
+#  - monte le code source en volume (hot-reload)
+#  - active --reload sur uvicorn
+#  - expose Vite sur 5173 au lieu de Nginx sur 80
+
 services:
   backend:
-    build: ./backend
     volumes:
       - ./backend:/app
       - ./bind9/zones:/etc/bind/zones:rw
     environment:
       - SECRET_KEY=dev-secret
       - BIND_ZONES_PATH=/etc/bind/zones
-    ports:
-      - "8000:8000"
-    networks:
-      - dns-network
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 
   frontend:
-    build: ./frontend
-    ports:
-      - "5173:5173"
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
     volumes:
       - ./frontend:/app
     environment:
       - VITE_API_URL=http://localhost:8000
-    networks:
-      - dns-network
-
-networks:
-  dns-network:
-    external: true
+    ports:
+      - "5173:5173"
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
