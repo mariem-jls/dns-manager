@@ -2,7 +2,8 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     database_url: str
     supabase_url: str | None = None
-    supabase_key: str | None = None
+    supabase_anon_key: str | None = None
+    supabase_service_key: str | None = None
     secret_key: str
     bind_zones_path: str = "/etc/bind/zones"
     bind_config_path: str = "/etc/bind/named.conf.local"

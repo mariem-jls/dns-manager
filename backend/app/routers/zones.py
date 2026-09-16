@@ -3,6 +3,7 @@ from typing import List
 
 from app.schemas.zone import ZoneCreate, ZoneRead, ZoneUpdate
 from app.services.bind_manager import BindManager, BindManagerError
+from app.services.supabase_client import get_supabase_client, SupabaseError
 from app.dependencies import get_current_user
 from app.utils.audit_logger import log as audit_log
 
@@ -12,17 +13,52 @@ manager = BindManager()
 
 @router.get("/", response_model=List[ZoneRead])
 async def list_zones(user=Depends(get_current_user)):
-    return manager.list_zones()
+    """Liste les zones BIND + enrichit avec les métadonnées Supabase."""
+    try:
+        zones = manager.list_zones()
+        supabase = get_supabase_client()
+        metas = {z["name"]: z for z in supabase.list_zones()}
+
+        for z in zones:
+            meta = metas.get(z.name)
+            if meta:
+                z.description = meta.get("description")
+
+        return zones
+    except (BindManagerError, SupabaseError) as e:
+        # Si Supabase échoue, on renvoie quand même les zones BIND
+        print(f"WARNING: Supabase error: {e}")
+        return manager.list_zones()
 
 
 @router.post("/", response_model=ZoneRead, status_code=status.HTTP_201_CREATED)
 async def create_zone(payload: ZoneCreate, user=Depends(get_current_user)):
     try:
+        # 1. Créer dans BIND
         z = manager.create_zone(
             name=payload.name,
             ztype=payload.type,
             description=payload.description,
         )
+
+        # 2. Stocker les métadonnées dans Supabase
+        try:
+            supabase = get_supabase_client()
+            supabase.create_zone(
+                name=z.name,
+                ztype=z.type,
+                description=payload.description,
+                created_by=user.get("email"),
+            )
+            supabase.log_action(
+                actor=user.get("email", "system"),
+                action="zones.create",
+                details=f"name={z.name} type={z.type}",
+            )
+        except SupabaseError as e:
+            # On log mais on ne crash pas : la zone BIND est créée
+            print(f"WARNING: Supabase sync failed: {e}")
+
         audit_log(
             user.get("email", "system"),
             "zones.create",
@@ -41,6 +77,45 @@ async def get_zone(zone_name: str, user=Depends(get_current_user)):
         z = manager.get_zone(zone_name)
         if not z:
             raise HTTPException(status_code=404, detail="Zone not found")
+
+        # Enrichir avec Supabase
+        try:
+            supabase = get_supabase_client()
+            meta = supabase.get_zone(z.name)
+            if meta:
+                z.description = meta.get("description")
+        except SupabaseError as e:
+            print(f"WARNING: Supabase error: {e}")
+
+        return z
+    except BindManagerError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.patch("/{zone_name}", response_model=ZoneRead)
+async def update_zone(
+    zone_name: str,
+    payload: ZoneUpdate,
+    user=Depends(get_current_user),
+):
+    """Met à jour les métadonnées d'une zone (description)."""
+    try:
+        z = manager.update_zone(zone_name, description=payload.description)
+        if not z:
+            raise HTTPException(status_code=404, detail="Zone not found")
+
+        # Sync Supabase
+        try:
+            supabase = get_supabase_client()
+            supabase.update_zone(z.name, description=payload.description)
+            supabase.log_action(
+                actor=user.get("email", "system"),
+                action="zones.update",
+                details=f"name={z.name}",
+            )
+        except SupabaseError as e:
+            print(f"WARNING: Supabase sync failed: {e}")
+
         return z
     except BindManagerError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -52,6 +127,19 @@ async def delete_zone(zone_name: str, user=Depends(get_current_user)):
         removed = manager.delete_zone(zone_name)
         if not removed:
             raise HTTPException(status_code=404, detail="Zone not found")
+
+        # Sync Supabase
+        try:
+            supabase = get_supabase_client()
+            supabase.delete_zone(zone_name)
+            supabase.log_action(
+                actor=user.get("email", "system"),
+                action="zones.delete",
+                details=f"name={zone_name}",
+            )
+        except SupabaseError as e:
+            print(f"WARNING: Supabase sync failed: {e}")
+
         audit_log(
             user.get("email", "system"),
             "zones.delete",

@@ -18,3 +18,9 @@ zone "1.168.192.in-addr.arpa" {
     also-notify { 172.25.0.4; };
     allow-transfer { key "axfr-key"; };
 };
+zone "test3b.com" {
+    type master;
+    file "/var/lib/bind/test3b.com.db";
+    notify yes;
+    allow-transfer { key "axfr-key"; };
+};
