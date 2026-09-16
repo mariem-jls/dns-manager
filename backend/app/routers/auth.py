@@ -1,27 +1,61 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from jose import jwt
-from app.config import settings
-from datetime import datetime, timedelta
+
+from app.services.supabase_client import get_supabase_client, SupabaseError
+from app.dependencies import get_current_user
+from app.utils.audit_logger import log as audit_log
 
 router = APIRouter()
 
-# minimal in-memory user for demo
-_demo_user = {"id":1, "email":"admin@dynamix.com", "role":"admin"}
 
 @router.post("/login")
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    # WARNING: replace with Supabase auth in production
-    if form_data.username == "admin@dynamix.com" and form_data.password == "password":
-        payload = {"user": _demo_user, "exp": datetime.utcnow() + timedelta(hours=8)}
-        token = jwt.encode(payload, settings.secret_key, algorithm="HS256")
-        return {"token": token, "user": _demo_user}
-    raise HTTPException(status_code=401, detail="Invalid credentials")
+    """
+    Login via Supabase Auth.
+    Retourne un JWT Supabase + les infos utilisateur + son rôle.
+    """
+    try:
+        supabase = get_supabase_client()
+        session = supabase.sign_in(
+            email=form_data.username,
+            password=form_data.password,
+        )
+    except SupabaseError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+        )
+
+    # Récupérer le profil (rôle)
+    try:
+        profile = supabase.get_profile(session["user"]["id"])
+    except SupabaseError:
+        profile = None
+
+    user = {
+        "id": session["user"]["id"],
+        "email": session["user"]["email"],
+        "role": (profile or {}).get("role", "viewer"),
+    }
+
+    audit_log(user["email"], "auth.login", f"user_id={user['id']}")
+
+    return {
+        "token": session["access_token"],
+        "refresh_token": session["refresh_token"],
+        "expires_at": session.get("expires_at"),
+        "user": user,
+    }
+
 
 @router.post("/logout")
-async def logout():
-    return {"message":"ok"}
+async def logout(user=Depends(get_current_user)):
+    """Déconnexion (invalide le token côté client)."""
+    audit_log(user.get("email", "system"), "auth.logout", "")
+    return {"message": "ok"}
+
 
 @router.get("/me")
-async def me():
-    return {"user": _demo_user}
+async def me(user=Depends(get_current_user)):
+    """Retourne l'utilisateur courant."""
+    return {"user": user}

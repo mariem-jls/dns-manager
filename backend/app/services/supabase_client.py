@@ -41,6 +41,104 @@ class SupabaseClient:
             )
 
         self.client: Client = create_client(self.url, self.key)
+    
+    # ============================================
+    # AUTH
+    # ============================================
+    def sign_in(self, email: str, password: str) -> dict[str, Any]:
+        """Connecte un utilisateur via Supabase Auth."""
+        try:
+            response = self.client.auth.sign_in_with_password({
+                "email": email,
+                "password": password,
+            })
+            if not response.user or not response.session:
+                raise SupabaseError("Invalid credentials")
+            return {
+                "access_token": response.session.access_token,
+                "refresh_token": response.session.refresh_token,
+                "expires_at": response.session.expires_at,
+                "user": {
+                    "id": response.user.id,
+                    "email": response.user.email,
+                },
+            }
+        except Exception as e:
+            raise SupabaseError(f"Sign in failed: {e}")
+
+    def sign_out(self, access_token: str) -> None:
+        """Déconnecte un utilisateur."""
+        try:
+            self.client.auth.admin.sign_out(access_token)
+        except Exception as e:
+            print(f"WARNING: Sign out failed: {e}")
+
+    def get_user_from_token(self, access_token: str) -> dict[str, Any] | None:
+        """Vérifie un JWT Supabase et retourne l'utilisateur."""
+        try:
+            response = self.client.auth.get_user(access_token)
+            if not response or not response.user:
+                return None
+            return {
+                "id": response.user.id,
+                "email": response.user.email,
+            }
+        except Exception:
+            return None
+
+    def get_profile(self, user_id: str) -> dict[str, Any] | None:
+        """Récupère le profil (rôle) d'un utilisateur."""
+        try:
+            response = (
+                self.client.table("user_profiles")
+                .select("*")
+                .eq("id", user_id)
+                .limit(1)
+                .execute()
+            )
+            if response.data and len(response.data) > 0:
+                return response.data[0]
+            return None
+        except Exception as e:
+            raise SupabaseError(f"Failed to get profile: {e}")
+
+    def create_profile(
+        self,
+        user_id: str,
+        email: str,
+        role: str = "viewer",
+    ) -> dict[str, Any]:
+        """Crée un profil utilisateur."""
+        try:
+            response = self.client.table("user_profiles").insert({
+                "id": user_id,
+                "email": email,
+                "role": role,
+            }).execute()
+            if not response.data:
+                raise SupabaseError("Insert returned no data")
+            return response.data[0]
+        except Exception as e:
+            raise SupabaseError(f"Failed to create profile: {e}")
+
+    def invite_user(self, email: str, role: str = "viewer") -> dict[str, Any]:
+        """Invite un utilisateur par email."""
+        try:
+            response = self.client.auth.admin.invite_user_by_email(email)
+            if not response.user:
+                raise SupabaseError("Invite failed")
+            self.create_profile(
+                user_id=response.user.id,
+                email=email,
+                role=role,
+            )
+            return {
+                "id": response.user.id,
+                "email": email,
+                "role": role,
+            }
+        except Exception as e:
+            raise SupabaseError(f"Failed to invite user: {e}")
 
     # ============================================
     # ZONES
@@ -178,10 +276,10 @@ class SupabaseClient:
 
 _supabase_client: SupabaseClient | None = None
 
-
 def get_supabase_client() -> SupabaseClient:
     """Retourne l'instance globale (lazy loading)."""
     global _supabase_client
     if _supabase_client is None:
         _supabase_client = SupabaseClient()
     return _supabase_client
+
