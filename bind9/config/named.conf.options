@@ -27,6 +27,9 @@ options {
     max-cache-size 512M;
 
 };
+controls {
+    inet 0.0.0.0 port 953 allow { 172.16.0.0/12; } keys { "rndc-key"; };
+};
 statistics-channels {
         inet 0.0.0.0 port 8053 allow { 172.16.0.0/12; 127.0.0.1; };
     };

@@ -1,34 +1,80 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, status
 from typing import List
-from app.schemas.zone import ZoneCreate, ZoneRead
-from app.services.bind_manager import BindManager
+
+from app.schemas.zone import ZoneCreate, ZoneRead, ZoneUpdate
+from app.services.bind_manager import BindManager, BindManagerError
 from app.dependencies import get_current_user
 from app.utils.audit_logger import log as audit_log
 
 router = APIRouter()
 manager = BindManager()
 
+
 @router.get("/", response_model=List[ZoneRead])
 async def list_zones(user=Depends(get_current_user)):
-    zones = manager.list_zones()
-    return zones
+    return manager.list_zones()
 
-@router.post("/", response_model=ZoneRead)
+
+@router.post("/", response_model=ZoneRead, status_code=status.HTTP_201_CREATED)
 async def create_zone(payload: ZoneCreate, user=Depends(get_current_user)):
     try:
-        z = manager.create_zone(payload.name, payload.type, payload.description)
-        audit_log(user.get('email', 'system'), 'zones.create', f"name={payload.name} type={payload.type}")
+        z = manager.create_zone(
+            name=payload.name,
+            ztype=payload.type,
+            description=payload.description,
+        )
+        audit_log(
+            user.get("email", "system"),
+            "zones.create",
+            f"name={z.name} type={z.type}",
+        )
         return z
+    except BindManagerError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Internal error: {e}")
+
+
+@router.get("/{zone_name}", response_model=ZoneRead)
+async def get_zone(zone_name: str, user=Depends(get_current_user)):
+    try:
+        z = manager.get_zone(zone_name)
+        if not z:
+            raise HTTPException(status_code=404, detail="Zone not found")
+        return z
+    except BindManagerError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/{zone_name}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_zone(zone_name: str, user=Depends(get_current_user)):
+    try:
+        removed = manager.delete_zone(zone_name)
+        if not removed:
+            raise HTTPException(status_code=404, detail="Zone not found")
+        audit_log(
+            user.get("email", "system"),
+            "zones.delete",
+            f"name={zone_name}",
+        )
+    except BindManagerError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 
 @router.post("/{zone_name}/validate")
 async def validate_zone(zone_name: str, user=Depends(get_current_user)):
-    ok, out = manager.validate_zone(zone_name)
-    return {"ok": ok, "output": out}
+    try:
+        ok, out = manager.validate_zone(zone_name)
+        return {"ok": ok, "output": out}
+    except BindManagerError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 
 @router.post("/reload")
 async def reload_bind(user=Depends(get_current_user)):
-    out = manager.reload()
-    audit_log(user.get('email', 'system'), 'zones.reload', 'rndc reload')
-    return {"result": out}
+    try:
+        out = manager.reload()
+        audit_log(user.get("email", "system"), "zones.reload", "rndc reload")
+        return {"ok": True, "result": out}
+    except BindManagerError as e:
+        raise HTTPException(status_code=500, detail=str(e))

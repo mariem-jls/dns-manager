@@ -18,4 +18,3 @@ zone "1.168.192.in-addr.arpa" {
     also-notify { 172.25.0.4; };
     allow-transfer { key "axfr-key"; };
 };
-

@@ -13,6 +13,7 @@ services:
       - "5353:53/tcp"
       - "5353:53/udp"
       - "8053:8053/tcp"
+      - "953:953/tcp"
     volumes:
       - ./bind9/config:/etc/bind
       - ./bind9/zones:/var/lib/bind
@@ -252,7 +253,9 @@ services:
       - "8000:8000"
     volumes:
       - ./backend/logs:/var/log/dynamix
-      - ./bind9/zones:/etc/bind/zones:ro
+      - ./bind9/zones:/etc/bind/zones:rw
+      - ./bind9/config/named.conf.local:/etc/bind/named.conf.local:rw 
+      - ./backend/rndc.conf:/etc/bind/rndc.conf:ro
     environment:
       - TZ=Europe/Paris
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -264,6 +267,7 @@ services:
       - SECRET_KEY=${SECRET_KEY}
       - ADMIN_EMAIL=${ADMIN_EMAIL}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - BIND_CONFIG_PATH=/etc/bind/named.conf.local
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health || exit 1"]
       interval: 15s
