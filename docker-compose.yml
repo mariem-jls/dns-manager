@@ -191,6 +191,7 @@ services:
     image: wazuh/wazuh-manager:4.14.7
     container_name: wazuh-manager
     restart: unless-stopped
+    profiles: [wazuh] 
     ports:
       - "55000:55000"
     volumes:
@@ -219,6 +220,7 @@ services:
     image: kennyopennix/wazuh-exporter:latest
     container_name: wazuh-exporter
     restart: unless-stopped
+    profiles: [wazuh] 
     ports:
       - "9116:5000"
     environment:
@@ -271,7 +273,7 @@ services:
     depends_on:
       - bind9
       - prometheus
-      - wazuh-manager
+      #- wazuh-manager
     networks:
       - dns-network
     logging:
