@@ -13,12 +13,19 @@ class PrometheusClient:
         response.raise_for_status()
         return response.json()
 
+    def query_range(self, expr: str, start: int, end: int, step: int = 60):
+        """Récupère une série temporelle."""
+        url = f"{self.base_url}/api/v1/query_range"
+        response = httpx.get(
+            url,
+            params={"query": expr, "start": start, "end": end, "step": step},
+            timeout=10.0,
+        )
+        response.raise_for_status()
+        return response.json().get("data", {}).get("result", [])
+
     def query_first_value(self, expressions: list[str]) -> float | None:
-        """
-        Retourne la première valeur trouvée parmi les expressions.
-        Retourne None si aucune expression ne renvoie de résultat.
-        N'INVENTE JAMAIS de valeur.
-        """
+        """Retourne la première valeur trouvée. None si aucune."""
         for expression in expressions:
             try:
                 result = self.query(expression)
@@ -26,7 +33,7 @@ class PrometheusClient:
                 if not samples:
                     continue
                 raw_value = samples[0].get("value", [None, None])[1]
-                if raw_value is None:
+                if raw_value is None or raw_value == "NaN":
                     continue
                 parsed = float(raw_value)
                 if parsed == parsed:  # filtre NaN
@@ -36,10 +43,7 @@ class PrometheusClient:
         return None
 
     def query_vector(self, expressions: list[str]) -> list[dict]:
-        """
-        Retourne le premier vecteur non vide trouvé parmi les expressions.
-        Retourne [] si aucune expression ne renvoie de résultat.
-        """
+        """Retourne le premier vecteur non vide."""
         for expression in expressions:
             try:
                 result = self.query(expression)
@@ -51,30 +55,31 @@ class PrometheusClient:
         return []
 
     def query_stats(self) -> dict:
-        """
-        Retourne les statistiques DNS.
-        Chaque valeur peut être None si Prometheus ne répond pas.
-        Le flag 'available' indique si au moins une métrique a été récupérée.
-        """
+        """Statistiques DNS."""
+        # 1. Requêtes par seconde
         request_rate = self.query_first_value([
-            'sum(rate(bind_dns_queries_total[5m]))',
-            'sum(rate(named_queries_total[5m]))',
-            'sum(rate(named_resolver_requests_total[5m]))',
+            'sum(rate(bind_incoming_queries_total[5m]))',
+            'sum(rate(bind_resolver_queries_total[5m]))',
+            'sum(rate(bind_incoming_requests_total[5m]))',
         ])
-        cache_hit_rate = self.query_first_value([
-            '100 * sum(rate(bind_dns_cache_hits_total[5m])) / clamp_min(sum(rate(bind_dns_cache_hits_total[5m])) + sum(rate(bind_dns_cache_misses_total[5m])), 1)',
-        ])
+
+        # 2. Latence : bind_exporter n'expose pas de vraie latence (NaN)
+        # On essaie l'histogramme, sinon None
         latency_ms = self.query_first_value([
-            '1000 * avg(bind_dns_query_duration_seconds)',
-            '1000 * avg(named_resolver_query_duration_seconds)',
+            '1000 * histogram_quantile(0.95, sum by (le) (rate(bind_resolver_query_duration_seconds_bucket[5m])))',
         ])
+
+        # 3. Taux d'erreur (%)
         error_rate = self.query_first_value([
-            '100 * sum(rate(bind_dns_servfail_total[5m])) / clamp_min(sum(rate(bind_dns_queries_total[5m])), 1)',
+            '100 * (sum(rate(bind_response_rcodes_total{rcode="SERVFAIL"}[5m])) / clamp_min(sum(rate(bind_responses_total[5m])), 1))',
         ])
+
+        # 4. Cache hit rate : non exposé par bind_exporter
+        cache_hit_rate = None
 
         available = any(
             v is not None
-            for v in [request_rate, cache_hit_rate, latency_ms, error_rate]
+            for v in [request_rate, latency_ms, error_rate]
         )
 
         return {
@@ -87,10 +92,6 @@ class PrometheusClient:
         }
 
     def query_health(self) -> dict:
-        """
-        Retourne l'état des services supervisés.
-        'available' = True si Prometheus a renvoyé au moins une métrique.
-        """
         metrics = self.query_vector([
             'up{job="bind9"}',
             'up{job="wazuh"}',
@@ -127,39 +128,13 @@ class PrometheusClient:
 
     def query_top_domains(self, limit: int = 10) -> list[dict]:
         """
-        Retourne les domaines les plus demandés.
-        Retourne [] si Prometheus ne répond pas.
-        N'INVENTE JAMAIS de domaine.
+        Top domaines.
+        bind_exporter n'expose PAS les stats par domaine.
+        On retourne une liste vide (N/A).
         """
-        samples = self.query_vector([
-            f'topk({limit}, sum by (domain) (rate(bind_dns_queries_total[5m])))',
-            f'topk({limit}, sum by (name) (rate(named_queries_total[5m])))',
-            f'topk({limit}, sum by (qname) (rate(named_resolver_requests_total[5m])))',
-        ])
-
-        domains: list[dict] = []
-        for sample in samples:
-            metric = sample.get('metric', {})
-            domain = (
-                metric.get('domain')
-                or metric.get('name')
-                or metric.get('qname')
-                or 'unknown'
-            )
-            raw_value = sample.get('value', [None, '0'])[1]
-            try:
-                hits = float(raw_value)
-            except Exception:
-                hits = 0.0
-            domains.append({'domain': domain, 'hits': int(hits)})
-
-        return domains[:limit]
+        return []
 
     def query_alerts(self) -> list[dict]:
-        """
-        Retourne les alertes basées sur l'état de santé et les stats.
-        Si Prometheus ne répond pas, retourne une alerte explicite.
-        """
         health = self.query_health()
         stats = self.query_stats()
         alerts: list[dict] = []
@@ -168,43 +143,34 @@ class PrometheusClient:
             return [{
                 'severity': 'warning',
                 'title': 'Prometheus indisponible',
-                'detail': 'Impossible de récupérer les métriques. Vérifier le service Prometheus.',
+                'detail': 'Impossible de récupérer les métriques.',
             }]
 
-        # Alertes sur l'état des services
         if health.get('primary') == 'down':
             alerts.append({
                 'severity': 'critique',
                 'title': 'BIND9 primary indisponible',
-                'detail': 'Le job Prometheus bind9 ne répond pas ou le service est à l’arrêt.',
+                'detail': 'Le job bind9 ne répond pas.',
             })
         if health.get('secondary') == 'down':
             alerts.append({
                 'severity': 'warning',
                 'title': 'BIND9 secondary indisponible',
-                'detail': 'Le job Prometheus bind9-secondary ne répond pas.',
+                'detail': 'Le job bind9-secondary ne répond pas.',
             })
         if health.get('wazuh') == 'down':
             alerts.append({
-                'severity': 'warning',
-                'title': 'Wazuh indisponible',
-                'detail': 'Le scrape Wazuh n’est pas joignable depuis Prometheus.',
-            })
-
-        latency = stats.get('latency_ms')
-        if latency is not None and latency > 50:
-            alerts.append({
-                'severity': 'warning',
-                'title': 'Latence DNS élevée',
-                'detail': f"Latence moyenne observée: {latency:.1f} ms",
+                'severity': 'info',
+                'title': 'Wazuh désactivé',
+                'detail': 'Wazuh est désactivé temporairement (profil docker).',
             })
 
         error_rate = stats.get('error_rate')
         if error_rate is not None and error_rate > 2:
             alerts.append({
                 'severity': 'critique',
-                'title': 'Taux d’erreur DNS élevé',
-                'detail': f"Taux d’erreur observé: {error_rate:.1f}%",
+                'title': 'Taux d\'erreur DNS élevé',
+                'detail': f"Taux observé: {error_rate:.2f}%",
             })
 
         if not alerts:
@@ -215,3 +181,49 @@ class PrometheusClient:
             })
 
         return alerts
+
+    def query_series(self, duration_min: int = 30, step: int = 60) -> list[dict]:
+        """
+        Série temporelle de requêtes/sec sur N minutes.
+        """
+        import time
+        now = int(time.time())
+        start = now - duration_min * 60
+
+        samples = self.query_range(
+            'sum(rate(bind_incoming_queries_total[1m]))',
+            start=start,
+            end=now,
+            step=step,
+        )
+
+        if not samples:
+            return []
+
+        values = samples[0].get("values", [])
+        items = []
+        for ts, v in values:
+            try:
+                items.append({"ts": int(ts), "value": float(v)})
+            except (ValueError, TypeError):
+                continue
+        return items
+
+    def query_traffic_distribution(self) -> list[dict]:
+        """Répartition des requêtes par type DNS."""
+        samples = self.query_vector([
+            'sum by (type) (rate(bind_incoming_queries_total[5m]))',
+        ])
+
+        items = []
+        for s in samples:
+            metric = s.get("metric", {})
+            name = metric.get("type", "unknown")
+            raw_value = s.get("value", [None, "0"])[1]
+            try:
+                value = float(raw_value)
+            except (ValueError, TypeError):
+                continue
+            if value > 0:
+                items.append({"name": name, "value": value})
+        return items

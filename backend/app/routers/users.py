@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.dependencies import get_current_user, require_role
 from app.services.supabase_client import get_supabase_client, SupabaseError
@@ -8,14 +8,36 @@ router = APIRouter()
 
 
 @router.get("/")
-async def list_users(user=Depends(get_current_user)):
-    """Liste tous les profils utilisateurs."""
+async def list_users(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    search: str | None = Query(None),
+    user=Depends(get_current_user),
+):
     try:
         supabase = get_supabase_client()
         profiles = supabase.list_users()
-        return profiles
+
+        if search:
+            search_lower = search.lower()
+            profiles = [
+                p for p in profiles
+                if search_lower in (p.get("email") or "").lower()
+            ]
+
+        total = len(profiles)
+        profiles = profiles[skip : skip + limit]
+
+        return {
+            "items": profiles,
+            "total": total,
+            "skip": skip,
+            "limit": limit,
+            "has_more": skip + limit < total,
+        }
     except SupabaseError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @router.post("/invite")

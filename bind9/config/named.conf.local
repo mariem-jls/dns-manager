@@ -24,3 +24,10 @@ zone "test3b.com" {
     notify yes;
     allow-transfer { key "axfr-key"; };
 };
+
+zone "test4.com" {
+    type master;
+    file "/var/lib/bind/test4.com.db";
+    notify yes;
+    allow-transfer { key "axfr-key"; };
+};

@@ -3,7 +3,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 
 router = APIRouter()
-AUDIT_LOG_PATH = Path('/var/log/dynamix-audit.log')
+AUDIT_LOG_PATH = Path('/var/log/dynamix/audit.log')
 
 
 def parse_line(line: str) -> dict:
@@ -19,12 +19,14 @@ def parse_line(line: str) -> dict:
 
 @router.get('/logs')
 async def list_logs(
+    skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     actor: str | None = None,
     action: str | None = None,
+    search: str | None = None,
 ):
     if not AUDIT_LOG_PATH.exists():
-        return {'items': []}
+        return {"items": [], "total": 0, "skip": skip, "limit": limit, "has_more": False}
 
     lines = AUDIT_LOG_PATH.read_text().splitlines()
     items = [parse_line(line) for line in reversed(lines)]
@@ -33,17 +35,17 @@ async def list_logs(
         items = [item for item in items if item.get('actor') == actor]
     if action:
         items = [item for item in items if item.get('action') == action]
+    if search:
+        search_lower = search.lower()
+        items = [item for item in items if search_lower in item.get('raw', '').lower()]
 
-    return {'items': items[:limit]}
+    total = len(items)
+    items = items[skip : skip + limit]
 
-
-@router.get('/logs/{log_id}')
-async def get_log(log_id: int):
-    if not AUDIT_LOG_PATH.exists():
-        raise HTTPException(status_code=404, detail='Audit log file not found')
-
-    lines = AUDIT_LOG_PATH.read_text().splitlines()
-    if log_id < 0 or log_id >= len(lines):
-        raise HTTPException(status_code=404, detail='Log entry not found')
-
-    return parse_line(lines[log_id])
+    return {
+        "items": items,
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+        "has_more": skip + limit < total,
+    }

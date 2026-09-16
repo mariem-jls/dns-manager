@@ -173,8 +173,9 @@ services:
     restart: unless-stopped
     ports:
       - "9119:9119"
-    environment:
-      - BIND_EXPORTER_OPTS=--bind.stats-url=http://bind9:8053 --bind.timeout=5s
+    command:
+      - "--bind.stats-url=http://bind9:8053"
+      - "--bind.timeout=5s"
     depends_on:
       - bind9
     networks:
