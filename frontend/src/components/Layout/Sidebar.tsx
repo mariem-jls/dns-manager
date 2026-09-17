@@ -35,7 +35,7 @@ export default function Sidebar() {
     <aside className="w-64 bg-white border-r h-screen sticky top-0 flex flex-col">
       {/* Logo */}
       <div className="p-4 border-b flex items-center gap-3">
-        <img src="/logo.svg" alt="Dynamix" className="h-10" />
+        <img src="/favicon1.svg" alt="Dynamix" className="h-10" />
       </div>
 
       {/* Navigation */}

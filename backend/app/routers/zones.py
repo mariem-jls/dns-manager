@@ -1,5 +1,5 @@
-from fastapi import APIRouter, HTTPException, Depends, status
-from typing import List
+from fastapi import APIRouter, HTTPException, Depends, status, Query
+from typing import List, Optional
 
 from app.schemas.zone import ZoneCreate, ZoneRead, ZoneUpdate
 from app.services.bind_manager import BindManager, BindManagerError
@@ -11,37 +11,55 @@ router = APIRouter()
 manager = BindManager()
 
 
-@router.get("/", response_model=List[ZoneRead])
-async def list_zones(user=Depends(get_current_user)):
+@router.get("/")
+async def list_zones(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    search: Optional[str] = Query(None),
+    user=Depends(get_current_user),
+):
     """Liste les zones BIND + enrichit avec les métadonnées Supabase."""
     try:
         zones = manager.list_zones()
-        supabase = get_supabase_client()
-        metas = {z["name"]: z for z in supabase.list_zones()}
-
-        for z in zones:
-            meta = metas.get(z.name)
-            if meta:
-                z.description = meta.get("description")
-
-        return zones
-    except (BindManagerError, SupabaseError) as e:
-        # Si Supabase échoue, on renvoie quand même les zones BIND
-        print(f"WARNING: Supabase error: {e}")
-        return manager.list_zones()
+        
+        try:
+            supabase = get_supabase_client()
+            metas = {z["name"]: z for z in supabase.list_zones()}
+            for z in zones:
+                meta = metas.get(z.name)
+                if meta:
+                    z.description = meta.get("description")
+        except SupabaseError as e:
+            print(f"WARNING: Supabase error: {e}")
+        
+        if search:
+            search_lower = search.lower()
+            zones = [z for z in zones if search_lower in z.name.lower()]
+        
+        total = len(zones)
+        items = zones[skip:skip + limit]
+        
+        return {
+            "items": items,
+            "total": total,
+            "skip": skip,
+            "limit": limit,
+            "has_more": skip + limit < total,
+        }
+    except BindManagerError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/", response_model=ZoneRead, status_code=status.HTTP_201_CREATED)
 async def create_zone(payload: ZoneCreate, user=Depends(get_current_user)):
+    print(f"DEBUG user: {user}", flush=True)   # ← AJOUTER
     try:
-        # 1. Créer dans BIND
         z = manager.create_zone(
             name=payload.name,
             ztype=payload.type,
             description=payload.description,
         )
 
-        # 2. Stocker les métadonnées dans Supabase
         try:
             supabase = get_supabase_client()
             supabase.create_zone(
@@ -56,7 +74,6 @@ async def create_zone(payload: ZoneCreate, user=Depends(get_current_user)):
                 details=f"name={z.name} type={z.type}",
             )
         except SupabaseError as e:
-            # On log mais on ne crash pas : la zone BIND est créée
             print(f"WARNING: Supabase sync failed: {e}")
 
         audit_log(
@@ -78,7 +95,6 @@ async def get_zone(zone_name: str, user=Depends(get_current_user)):
         if not z:
             raise HTTPException(status_code=404, detail="Zone not found")
 
-        # Enrichir avec Supabase
         try:
             supabase = get_supabase_client()
             meta = supabase.get_zone(z.name)
@@ -98,13 +114,11 @@ async def update_zone(
     payload: ZoneUpdate,
     user=Depends(get_current_user),
 ):
-    """Met à jour les métadonnées d'une zone (description)."""
     try:
         z = manager.update_zone(zone_name, description=payload.description)
         if not z:
             raise HTTPException(status_code=404, detail="Zone not found")
 
-        # Sync Supabase
         try:
             supabase = get_supabase_client()
             supabase.update_zone(z.name, description=payload.description)
@@ -128,7 +142,6 @@ async def delete_zone(zone_name: str, user=Depends(get_current_user)):
         if not removed:
             raise HTTPException(status_code=404, detail="Zone not found")
 
-        # Sync Supabase
         try:
             supabase = get_supabase_client()
             supabase.delete_zone(zone_name)

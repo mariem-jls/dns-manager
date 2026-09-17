@@ -3,15 +3,25 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
-  - job_name: 'bind9'
-    static_configs:
-      - targets: ['bind-exporter:9119']
-
+  # ============================================
+  # PROMETHEUS (self-monitoring)
+  # ============================================
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']
 
-  - job_name: 'wazuh'
-    metrics_path: /metrics
+  # ============================================
+  # BIND9 (DNS metrics)
+  # ============================================
+  - job_name: 'bind9'
     static_configs:
-      - targets: ['wazuh-exporter:5000']
+      - targets: ['bind-exporter:9119']
+
+  # ============================================
+  # WAZUH (désactivé temporairement)
+  # ============================================
+  # Décommenter quand Wazuh sera réactivé
+  # - job_name: 'wazuh'
+  #   metrics_path: /metrics
+  #   static_configs:
+  #     - targets: ['wazuh-exporter:5000']

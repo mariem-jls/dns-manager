@@ -320,6 +320,32 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ============================================
+  # DNS TRAFFIC GENERATOR (pour alimenter Prometheus)
+  # ============================================
+  dns-traffic:
+    image: alpine:latest
+    container_name: dns-traffic
+    restart: unless-stopped
+    depends_on:
+      - bind9
+    command: >
+      sh -c "apk add --no-cache bind-tools > /dev/null 2>&1 &&
+      while true; do
+        dig @bind9 +short dynamix.com A > /dev/null 2>&1;
+        dig @bind9 +short dynamix.com AAAA > /dev/null 2>&1;
+        dig @bind9 +short dynamix.com MX > /dev/null 2>&1;
+        dig @bind9 +short 1.168.192.in-addr.arpa PTR > /dev/null 2>&1;
+        sleep 3;
+      done"
+    networks:
+      - dns-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
 # ============================================
 # RÉSEAUX
 # ============================================

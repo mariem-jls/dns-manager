@@ -78,3 +78,28 @@ create policy "profiles_self_update" on public.user_profiles
         auth.role() = 'authenticated'
         and id = auth.uid()
     );
+
+-- ============================================
+-- Politiques pour service_role (backend)
+-- ============================================
+
+-- dns_zones
+drop policy if exists "zones_service_all" on public.dns_zones;
+create policy "zones_service_all" on public.dns_zones
+    for all to service_role
+    using (true)
+    with check (true);
+
+-- audit_logs
+drop policy if exists "audit_service_all" on public.audit_logs;
+create policy "audit_service_all" on public.audit_logs
+    for all to service_role
+    using (true)
+    with check (true);
+
+-- user_profiles
+drop policy if exists "profiles_service_all" on public.user_profiles;
+create policy "profiles_service_all" on public.user_profiles
+    for all to service_role
+    using (true)
+    with check (true);

@@ -11,6 +11,9 @@ export default function Dashboard() {
   const [series, setSeries] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [zonesCount, setZonesCount] = useState<number | null>(null)
+
+
 
   useEffect(() => {
     setLoading(true)
@@ -32,10 +35,13 @@ export default function Dashboard() {
 
     // Zones
     client.get('/api/zones/')
-      .then((r) => setZones(r.data?.items ?? []))
-      .catch(() => setZones([]))
+    .then((r) => {
+      const zones = Array.isArray(r.data) ? r.data : (r.data?.items ?? [])
+      setZonesCount(zones.length)
+    })
+    .catch(() => setZonesCount(0))
 
-    // Série temporelle (rafraîchie toutes les minutes)
+   // Série temporelle (rafraîchie toutes les minutes)
     const fetchSeries = () => {
       client.get('/api/monitoring/series?duration_min=30&step=60')
         .then((r) => setSeries(r.data?.items ?? []))
@@ -81,12 +87,14 @@ export default function Dashboard() {
       )}
 
       <div className="grid gap-4 md:grid-cols-4">
-        <Card className="border border-[#d0d7de] shadow-[0_1px_2px_rgba(27,31,36,0.04)]">
-          <div className="text-sm text-[#586069]">Zones actives</div>
-          <div className="mt-2 text-3xl font-bold text-[#24292f]">
-            {zones.length > 0 ? zones.length : '—'}
-          </div>
-          <div className="mt-2 text-sm text-[#586069]">Source : API zones</div>
+        <Card>
+        <div className="text-sm text-[#586069]">Zones actives</div>
+        <div className="mt-2 text-3xl font-bold text-[#24292f]">
+        {zonesCount !== null ? zonesCount : '—'}
+        </div>
+        <div className="mt-2 text-sm text-[#586069]">
+        {zonesCount !== null ? 'Source BIND' : 'Chargement...'}
+        </div>
         </Card>
 
         <Card className="border border-[#d0d7de] shadow-[0_1px_2px_rgba(27,31,36,0.04)]">

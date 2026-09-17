@@ -79,11 +79,28 @@ class SupabaseClient:
             response = self.client.auth.get_user(access_token)
             if not response or not response.user:
                 return None
+            
+            # Récupérer l'email depuis response.user ou depuis le JWT
+            email = response.user.email
+            if not email:
+                # Extraire l'email du JWT directement
+                import base64
+                import json
+                try:
+                    payload = access_token.split('.')[1]
+                    padding = 4 - (len(payload) % 4)
+                    payload += '=' * padding
+                    decoded = json.loads(base64.urlsafe_b64decode(payload))
+                    email = decoded.get('email')
+                except Exception:
+                    email = None
+            
             return {
                 "id": response.user.id,
-                "email": response.user.email,
+                "email": email,
             }
-        except Exception:
+        except Exception as e:
+            print(f"DEBUG get_user_from_token error: {e}", flush=True)
             return None
 
     def get_profile(self, user_id: str) -> dict[str, Any] | None:

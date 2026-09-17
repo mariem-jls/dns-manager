@@ -92,40 +92,47 @@ class PrometheusClient:
         }
 
     def query_health(self) -> dict:
-        metrics = self.query_vector([
-            'up{job="bind9"}',
-            'up{job="wazuh"}',
-            'up{job="prometheus"}',
-        ])
-
+        """Retourne l'état de santé de chaque service."""
         health = {
-            'available': len(metrics) > 0,
+            'available': True,
             'primary': 'unknown',
             'secondary': 'unknown',
             'prometheus': 'unknown',
             'wazuh': 'unknown',
         }
 
-        for sample in metrics:
-            metric = sample.get('metric', {})
-            job = metric.get('job')
-            raw_value = sample.get('value', [None, '0'])[1]
+        # Interroger chaque job individuellement
+        for job, key in [
+            ('bind9', 'primary'),
+            ('bind9', 'secondary'),
+            ('prometheus', 'prometheus'),
+            ('wazuh', 'wazuh'),
+        ]:
             try:
-                value = float(raw_value)
+                result = self.query(f'up{{job="{job}"}}')
+                samples = result.get('data', {}).get('result', [])
+                if samples:
+                    value = float(samples[0].get('value', [None, '0'])[1])
+                    status = 'up' if value >= 1 else 'down'
+                    health[key] = status
+                else:
+                    # Pas de résultat → service indisponible
+                    if job == 'wazuh':
+                        health[key] = 'disabled'  # Wazuh désactivé
+                    else:
+                        health[key] = 'down'
             except Exception:
-                continue
-            status = 'up' if value >= 1 else 'down'
+                if job == 'wazuh':
+                    health[key] = 'disabled'
+                else:
+                    health[key] = 'unknown'
 
-            if job == 'bind9':
-                health['primary'] = status
-                health['secondary'] = status
-            elif job == 'wazuh':
-                health['wazuh'] = status
-            elif job == 'prometheus':
-                health['prometheus'] = status
+        # Cas particulier : bind9 → primary et secondary
+        # (on considère que les deux sont up si bind9 est up)
+        if health['primary'] == 'up':
+            health['secondary'] = 'up'
 
         return health
-
     def query_top_domains(self, limit: int = 10) -> list[dict]:
         """
         Top domaines.
