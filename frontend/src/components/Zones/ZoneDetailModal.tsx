@@ -1,7 +1,8 @@
-import React from 'react'
+import React, { useState } from 'react'
 import Modal from '../UI/Modal'
 import Button from '../UI/Button'
 import { useZone } from '../../hooks/useZones'
+import ZoneRecords from './ZoneRecords'
 
 interface ZoneDetailModalProps {
   open: boolean
@@ -17,9 +18,15 @@ export default function ZoneDetailModal({
   onEdit,
 }: ZoneDetailModalProps) {
   const { data: zone, isLoading, error } = useZone(zoneName)
+  const [tab, setTab] = useState<'info' | 'records'>('info')
+
+  const handleClose = () => {
+    setTab('info')
+    onClose()
+  }
 
   return (
-    <Modal open={open} onClose={onClose} title={`Zone : ${zoneName ?? ''}`}>
+    <Modal open={open} onClose={handleClose} title={`Zone : ${zoneName ?? ''}`}>
       {isLoading && (
         <div className="py-6 text-center text-sm text-[#586069]">
           Chargement...
@@ -34,53 +41,89 @@ export default function ZoneDetailModal({
 
       {zone && (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <div className="text-[#586069]">Nom</div>
-              <div className="font-medium text-[#24292f]">{zone.name}</div>
-            </div>
-            <div>
-              <div className="text-[#586069]">Type</div>
-              <div className="font-medium text-[#24292f] capitalize">{zone.type}</div>
-            </div>
-            <div>
-              <div className="text-[#586069]">Serial</div>
-              <div className="font-medium text-[#24292f]">{zone.serial}</div>
-            </div>
-            <div>
-              <div className="text-[#586069]">Fichier</div>
-              <div className="font-mono text-xs text-[#24292f] break-all">
-                {zone.file ?? '—'}
-              </div>
-            </div>
-            <div className="col-span-2">
-              <div className="text-[#586069]">Description</div>
-              <div className="font-medium text-[#24292f]">
-                {zone.description || <span className="text-[#586069] italic">Aucune description</span>}
-              </div>
-            </div>
+          {/* Onglets */}
+          <div className="flex gap-2 border-b border-[#d0d7de]">
+            <button
+              onClick={() => setTab('info')}
+              className={`px-3 py-2 text-sm font-medium ${
+                tab === 'info'
+                  ? 'border-b-2 border-[#0969da] text-[#0969da]'
+                  : 'text-[#586069] hover:text-[#24292f]'
+              }`}
+            >
+              Informations
+            </button>
+            <button
+              onClick={() => setTab('records')}
+              className={`px-3 py-2 text-sm font-medium ${
+                tab === 'records'
+                  ? 'border-b-2 border-[#0969da] text-[#0969da]'
+                  : 'text-[#586069] hover:text-[#24292f]'
+              }`}
+            >
+              Enregistrements
+            </button>
           </div>
 
-          <div className="flex justify-end gap-2 border-t border-[#d0d7de] pt-4">
-            <Button
-              type="button"
-              onClick={onClose}
-              className="border border-[#d0d7de] bg-white text-[#24292f] hover:bg-[#f6f8fa]"
-            >
-              Fermer
-            </Button>
-            {onEdit && (
-              <Button
-                type="button"
-                onClick={() => {
-                  onClose()
-                  onEdit(zone.name)
-                }}
-              >
-                Modifier
-              </Button>
-            )}
-          </div>
+          {/* Onglet Info */}
+          {tab === 'info' && (
+            <>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <div className="text-[#586069]">Nom</div>
+                  <div className="font-medium text-[#24292f]">{zone.name}</div>
+                </div>
+                <div>
+                  <div className="text-[#586069]">Type</div>
+                  <div className="font-medium text-[#24292f] capitalize">{zone.type}</div>
+                </div>
+                <div>
+                  <div className="text-[#586069]">Serial</div>
+                  <div className="font-medium text-[#24292f]">{zone.serial}</div>
+                </div>
+                <div>
+                  <div className="text-[#586069]">Fichier</div>
+                  <div className="font-mono text-xs text-[#24292f] break-all">
+                    {zone.file ?? '—'}
+                  </div>
+                </div>
+                <div className="col-span-2">
+                  <div className="text-[#586069]">Description</div>
+                  <div className="font-medium text-[#24292f]">
+                    {zone.description || (
+                      <span className="text-[#586069] italic">Aucune description</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 border-t border-[#d0d7de] pt-4">
+                <Button
+                  type="button"
+                  onClick={handleClose}
+                  className="border border-[#d0d7de] bg-white text-[#24292f] hover:bg-[#f6f8fa]"
+                >
+                  Fermer
+                </Button>
+                {onEdit && (
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      handleClose()
+                      onEdit(zone.name)
+                    }}
+                  >
+                    Modifier
+                  </Button>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* Onglet Records */}
+          {tab === 'records' && (
+            <ZoneRecords zoneName={zone.name} />
+          )}
         </div>
       )}
     </Modal>

@@ -76,3 +76,36 @@ alter table public.dns_zones enable row level security;
 alter table public.audit_logs enable row level security;
 alter table public.user_profiles enable row level security;
 
+
+
+-- 1. Créer la fonction
+CREATE OR REPLACE FUNCTION public.current_user_role()
+RETURNS text AS $$
+    SELECT role FROM public.user_profiles
+    WHERE id = auth.uid()
+$$ LANGUAGE sql SECURITY DEFINER;
+
+-- 2. Créer la table dns_records
+CREATE TABLE IF NOT EXISTS public.dns_records (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    zone_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,
+    value TEXT NOT NULL,
+    ttl INTEGER NOT NULL DEFAULT 3600,
+    priority INTEGER,
+    created_by TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_dns_records_zone ON public.dns_records (zone_name);
+
+-- 3. RLS pour dns_records
+ALTER TABLE public.dns_records ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "records_service_all" ON public.dns_records;
+CREATE POLICY "records_service_all" ON public.dns_records
+    FOR ALL TO service_role
+    USING (true) WITH CHECK (true);
+

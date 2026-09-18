@@ -160,20 +160,14 @@ class BindManager:
         description: str | None = None,
         masters: list[str] | None = None,
     ) -> Zone:
-        """
-        Crée une zone DNS.
-
-        - type=master : crée le fichier .db avec un template SOA
-        - type=slave  : ne crée PAS de fichier (BIND le fera lors du transfert)
-        """
         normalized = self.validate_zone_name(name)
         ztype = self.validate_zone_type(ztype)
 
-        # Vérifier si la zone existe déjà dans la config
         if self._zone_in_config(normalized):
             raise BindManagerError(f"Zone '{normalized}' already exists in config")
 
-        zone_file = self.zones_path / f"{normalized}.db"
+        # Utiliser le format db.{name} comme les autres zones
+        zone_file = self.zones_path / f"db.{normalized}"
 
         if ztype == "master":
             if zone_file.exists():
@@ -181,10 +175,9 @@ class BindManager:
             content = self._generate_soa_template(normalized)
             zone_file.write_text(content)
 
-        # Ajouter à named.conf.local
+        # Ajouter à named.conf.local avec le bon chemin
         self._add_zone_to_config(normalized, ztype, masters=masters)
 
-        # Recharger BIND
         self.reload()
 
         return Zone(
@@ -220,15 +213,20 @@ class BindManager:
         # Retirer de named.conf.local
         removed = self._remove_zone_from_config(normalized)
 
-        # Supprimer le fichier .db
-        zone_file = self.zones_path / f"{normalized}.db"
-        if zone_file.exists():
+        # Supprimer le fichier .db (avec _get_zone_file qui gère les 3 formats)
+        zone_file = self._get_zone_file(normalized)
+        if zone_file and zone_file.exists():
             zone_file.unlink()
 
         # Supprimer aussi les .jnl (journal)
-        jnl = self.zones_path / f"{normalized}.db.jnl"
-        if jnl.exists():
-            jnl.unlink()
+        for jnl_name in [
+            f"{normalized}.db.jnl",
+            f"db.{normalized}.db.jnl",
+            f"db.{normalized}.jnl",
+        ]:
+            jnl = self.zones_path / jnl_name
+            if jnl.exists():
+                jnl.unlink()
 
         if removed:
             self.reload()
@@ -259,9 +257,11 @@ class BindManager:
     def validate_zone(self, name: str) -> tuple[bool, str]:
         """Valide une zone avec named-checkzone."""
         normalized = self.validate_zone_name(name)
-        path = self.zones_path / f"{normalized}.db"
-        if not path.exists():
-            return False, f"Zone file not found: {path}"
+        
+        # Utiliser _get_zone_file qui gère les 3 formats
+        path = self._get_zone_file(normalized)
+        if not path:
+            return False, f"Zone file not found for '{normalized}'"
 
         try:
             out = subprocess.check_output(
@@ -275,7 +275,6 @@ class BindManager:
             return False, e.output
         except subprocess.TimeoutExpired:
             return False, "named-checkzone timeout"
-
     # ============================================
     # RELOAD BIND
     # ============================================
@@ -319,7 +318,7 @@ class BindManager:
             block = (
                 f'\nzone "{name}" {{\n'
                 f'    type master;\n'
-                f'    file "/var/lib/bind/{name}.db";\n'
+                f'    file "/var/lib/bind/db.{name}";\n'   # ← db.{name} au lieu de {name}.db
                 f'    notify yes;\n'
                 f'    allow-transfer {{ key "axfr-key"; }};\n'
                 f'}};\n'
@@ -330,28 +329,263 @@ class BindManager:
                 f'\nzone "{name}" {{\n'
                 f'    type slave;\n'
                 f'    masters {{ {masters_list} port 53; }};\n'
-                f'    file "/var/lib/bind/{name}.db";\n'
+                f'    file "/var/lib/bind/db.{name}";\n'   # ← db.{name}
                 f'}};\n'
             )
 
         with self.config_path.open("a") as fh:
             fh.write(block)
 
+    # ============================================
+    # RECORDS
+    # ============================================
+    def list_records(self, zone_name: str) -> list[dict]:
+        """
+        Parse les enregistrements d'une zone.
+        Ignore SOA, NS de base, et les commentaires.
+        """
+        normalized = self.validate_zone_name(zone_name)
+        
+        # Utiliser _get_zone_file qui gère les 3 formats
+        zone_file = self._get_zone_file(normalized)
+        if not zone_file:
+            raise BindManagerError(f"Zone file not found for '{normalized}'")
+
+        records: list[dict] = []
+        lines = zone_file.read_text().splitlines()
+
+        for idx, raw_line in enumerate(lines):
+            # Retirer les commentaires
+            line = raw_line.split(";")[0].strip()
+            if not line:
+                continue
+
+            # Ignorer SOA, $TTL, $ORIGIN, directives
+            if line.startswith("$") or "SOA" in line.upper():
+                continue
+
+            # Parser : name [ttl] [IN] type value [priority]
+            tokens = line.split()
+            if len(tokens) < 3:
+                continue
+
+            name = tokens[0]
+            remaining = tokens[1:]
+
+            # Retirer "IN" s'il est en premier (format : name IN A value)
+            if remaining and remaining[0].upper() == "IN":
+                remaining = remaining[1:]
+
+            # Chercher le TTL (nombre en début)
+            ttl = 3600
+            if remaining and remaining[0].isdigit():
+                ttl = int(remaining[0])
+                remaining = remaining[1:]
+
+            # Retirer "IN" à nouveau (format : name TTL IN A value)
+            if remaining and remaining[0].upper() == "IN":
+                remaining = remaining[1:]
+
+            if len(remaining) < 2:
+                continue
+
+            rtype = remaining[0].upper()
+            if rtype not in ("A", "AAAA", "CNAME", "MX", "TXT", "NS", "SRV", "PTR", "CAA"):
+                continue
+
+            # Valeur : tout le reste
+            value_tokens = remaining[1:]
+
+            # Gérer MX/SRV avec priorité en premier
+            priority = None
+            if rtype in ("MX", "SRV") and value_tokens and value_tokens[0].isdigit():
+                priority = int(value_tokens[0])
+                value_tokens = value_tokens[1:]
+
+            value = " ".join(value_tokens).strip('"')
+
+            # Générer un ID stable (hash)
+            rec_id = f"{name}|{rtype}|{value}".lower().replace(" ", "_")
+
+            records.append({
+                "id": rec_id,
+                "name": name,
+                "type": rtype,
+                "value": value,
+                "ttl": ttl,
+                "priority": priority,
+                "line": idx,
+            })
+
+        return records
+
+    def add_record(
+        self,
+        zone_name: str,
+        name: str,
+        rtype: str,
+        value: str,
+        ttl: int = 3600,
+        priority: int | None = None,
+    ) -> dict:
+        """Ajoute un enregistrement à une zone (évite les doublons)."""
+        normalized = self.validate_zone_name(zone_name)
+        zone_file = self._get_zone_file(normalized)
+        if not zone_file:
+            raise BindManagerError(f"Zone file not found for '{normalized}'")
+
+        rtype = rtype.upper()
+
+        # VÉRIFIER SI LE RECORD EXISTE DÉJÀ
+        existing = self.list_records(normalized)
+        for rec in existing:
+            if rec['name'] == name and rec['type'] == rtype and rec['value'] == value:
+                raise BindManagerError(
+                    f"Record '{name} {rtype} {value}' already exists"
+                )
+
+        # Construire la ligne
+        if rtype in ("MX", "SRV") and priority is not None:
+            line = f"{name}\t{ttl}\tIN\t{rtype}\t{priority}\t{value}"
+        else:
+            line = f"{name}\t{ttl}\tIN\t{rtype}\t{value}"
+
+        # Ajouter au fichier
+        with zone_file.open("a") as fh:
+            fh.write("\n" + line + "\n")
+
+        # Incrémenter le serial
+        self._increment_serial(zone_file)
+
+        # Recharger BIND
+        self.reload()
+
+        # Générer l'ID
+        rec_id = f"{name}|{rtype}|{value}".lower().replace(" ", "_")
+
+        return {
+            "id": rec_id,
+            "name": name,
+            "type": rtype,
+            "value": value,
+            "ttl": ttl,
+            "priority": priority,
+            "line": -1,
+        }
+
+    def delete_record(self, zone_name: str, record_id: str) -> bool:
+        """
+        Supprime un enregistrement par son ID.
+        Incrémente le serial SOA et recharge BIND.
+        """
+        normalized = self.validate_zone_name(zone_name)
+        zone_file = self._get_zone_file(normalized)
+        if not zone_file:
+            raise BindManagerError(f"Zone file not found for '{normalized}'")
+
+        # Retrouver la ligne
+        records = self.list_records(normalized)
+        target = next((r for r in records if r["id"] == record_id), None)
+        if not target:
+            return False
+
+        # Lire les lignes
+        lines = zone_file.read_text().splitlines()
+        line_idx = target["line"]
+        if line_idx < 0 or line_idx >= len(lines):
+            return False
+
+        # Supprimer la ligne
+        del lines[line_idx]
+
+        # Réécrire le fichier
+        zone_file.write_text("\n".join(lines) + "\n")
+
+        # Incrémenter le serial
+        self._increment_serial(zone_file)
+
+        # Recharger BIND
+        self.reload()
+
+        return True
+
+    # ============================================
+    # HELPERS
+    # ============================================
+    def _get_zone_file(self, zone_name: str) -> Path | None:
+        """
+        Trouve le fichier de zone.
+        Formats supportés :
+        - dynamix.com.db
+        - db.dynamix.com.db
+        - db.dynamix.com
+        """
+        candidates = [
+            self.zones_path / f"{zone_name}.db",        # dynamix.com.db
+            self.zones_path / f"db.{zone_name}.db",     # db.dynamix.com.db
+            self.zones_path / f"db.{zone_name}",        # db.dynamix.com ← AJOUTER
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return None
+
+    def _increment_serial(self, zone_file: Path) -> None:
+        """Incrémente le serial SOA dans le fichier."""
+        content = zone_file.read_text()
+        # Chercher la première ligne après SOA qui contient un nombre
+        match = re.search(
+            r"(SOA\s+\S+\s+\S+\s*\(\s*)(\d+)",
+            content,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if not match:
+            return
+        old_serial = int(match.group(2))
+        new_serial = old_serial + 1
+        new_content = content[: match.start(2)] + str(new_serial) + content[match.end(2):]
+        zone_file.write_text(new_content)
+
     def _remove_zone_from_config(self, name: str) -> bool:
-        """Retire une zone de named.conf.local."""
+        """
+        Retire une zone de named.conf.local.
+        Utilise un compteur d'accolades pour gérer les blocs imbriqués.
+        """
         if not self.config_path.exists():
             return False
 
         content = self.config_path.read_text()
-        # Regex pour matcher un bloc zone complet
-        pattern = re.compile(
-            rf'\n?zone\s+"{re.escape(name)}"\s*\{{[^}}]*\}};\s*\n?',
-            re.MULTILINE | re.DOTALL,
-        )
-        new_content, count = pattern.subn("\n", content)
-
-        if count == 0:
+        lines = content.splitlines()
+        
+        # Trouver le début du bloc zone
+        start_idx = None
+        for i, line in enumerate(lines):
+            if re.match(rf'^\s*zone\s+"{re.escape(name)}"\s*\{{', line):
+                start_idx = i
+                break
+        
+        if start_idx is None:
             return False
-
+        
+        # Trouver la fin du bloc (compteur d'accolades)
+        brace_count = 0
+        end_idx = None
+        for i in range(start_idx, len(lines)):
+            brace_count += lines[i].count('{')
+            brace_count -= lines[i].count('}')
+            if brace_count == 0 and i > start_idx:
+                end_idx = i
+                break
+        
+        if end_idx is None:
+            return False
+        
+        # Supprimer les lignes du bloc
+        del lines[start_idx:end_idx + 1]
+        
+        # Nettoyer les lignes vides multiples
+        new_content = '\n'.join(lines)
+        new_content = re.sub(r'\n{3,}', '\n\n', new_content)
+        
         self.config_path.write_text(new_content)
         return True

@@ -264,6 +264,73 @@ class SupabaseClient:
             # On ne veut pas crasher si l'audit log échoue
             print(f"WARNING: Failed to log action to Supabase: {e}")
 
+
+    # ============================================
+    # RECORDS
+    # ============================================
+    def list_records(self, zone_name: str) -> list[dict[str, Any]]:
+        """Liste les métadonnées des records d'une zone."""
+        try:
+            response = (
+                self.client.table("dns_records")
+                .select("*")
+                .eq("zone_name", zone_name)
+                .execute()
+            )
+            return response.data or []
+        except Exception as e:
+            raise SupabaseError(f"Failed to list records: {e}")
+
+    def create_record(
+        self,
+        zone_name: str,
+        name: str,
+        rtype: str,
+        value: str,
+        ttl: int = 3600,
+        priority: int | None = None,
+        created_by: str | None = None,
+    ) -> dict[str, Any]:
+        """Crée les métadonnées d'un record."""
+        try:
+            data = {
+                "zone_name": zone_name,
+                "name": name,
+                "type": rtype,
+                "value": value,
+                "ttl": ttl,
+                "priority": priority,
+                "created_by": created_by,
+            }
+            response = self.client.table("dns_records").insert(data).execute()
+            if not response.data:
+                raise SupabaseError("Insert returned no data")
+            return response.data[0]
+        except Exception as e:
+            raise SupabaseError(f"Failed to create record: {e}")
+
+    def delete_record(
+        self,
+        zone_name: str,
+        name: str,
+        rtype: str,
+        value: str,
+    ) -> bool:
+        """Supprime les métadonnées d'un record."""
+        try:
+            response = (
+                self.client.table("dns_records")
+                .delete()
+                .eq("zone_name", zone_name)
+                .eq("name", name)
+                .eq("type", rtype)
+                .eq("value", value)
+                .execute()
+            )
+            return bool(response.data)
+        except Exception as e:
+            raise SupabaseError(f"Failed to delete record: {e}")
+
     # ============================================
     # USERS
     # ============================================
@@ -290,6 +357,8 @@ class SupabaseClient:
             return None
         except Exception as e:
             raise SupabaseError(f"Failed to get user '{user_id}': {e}")
+
+
 
 _supabase_client: SupabaseClient | None = None
 
