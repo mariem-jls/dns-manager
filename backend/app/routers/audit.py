@@ -1,20 +1,9 @@
-from pathlib import Path
-
 from fastapi import APIRouter, HTTPException, Query
+from app.services.supabase_client import get_supabase_client, SupabaseError
+from app.dependencies import get_current_user
+from fastapi import Depends
 
 router = APIRouter()
-AUDIT_LOG_PATH = Path('/var/log/dynamix/audit.log')
-
-
-def parse_line(line: str) -> dict:
-    timestamp, _, rest = line.partition(' ')
-    level, _, payload = rest.partition(' ')
-    fields = {'timestamp': timestamp, 'level': level or 'INFO', 'raw': payload.strip()}
-    for chunk in payload.split():
-        if '=' in chunk:
-            key, value = chunk.split('=', 1)
-            fields[key] = value
-    return fields
 
 
 @router.get('/logs')
@@ -24,28 +13,52 @@ async def list_logs(
     actor: str | None = None,
     action: str | None = None,
     search: str | None = None,
+    user=Depends(get_current_user),
 ):
-    if not AUDIT_LOG_PATH.exists():
-        return {"items": [], "total": 0, "skip": skip, "limit": limit, "has_more": False}
-
-    lines = AUDIT_LOG_PATH.read_text().splitlines()
-    items = [parse_line(line) for line in reversed(lines)]
-
-    if actor:
-        items = [item for item in items if item.get('actor') == actor]
-    if action:
-        items = [item for item in items if item.get('action') == action]
-    if search:
-        search_lower = search.lower()
-        items = [item for item in items if search_lower in item.get('raw', '').lower()]
-
-    total = len(items)
-    items = items[skip : skip + limit]
-
-    return {
-        "items": items,
-        "total": total,
-        "skip": skip,
-        "limit": limit,
-        "has_more": skip + limit < total,
-    }
+    """Liste les logs d'audit depuis Supabase."""
+    try:
+        supabase = get_supabase_client()
+        
+        # Construire la requête
+        query = supabase.client.table("audit_logs").select("*", count="exact")
+        
+        # Filtres
+        if actor:
+            query = query.eq("actor", actor)
+        if action:
+            query = query.eq("action", action)
+        if search:
+            query = query.ilike("details", f"%{search}%")
+        
+        # Tri par date décroissante
+        query = query.order("created_at", desc=True)
+        
+        # Pagination
+        query = query.range(skip, skip + limit - 1)
+        
+        response = query.execute()
+        
+        items = response.data or []
+        total = response.count or len(items)
+        
+        # Normaliser le format pour le frontend
+        formatted_items = []
+        for log in items:
+            formatted_items.append({
+                "id": log.get("id"),
+                "timestamp": log.get("created_at"),
+                "actor": log.get("actor"),
+                "action": log.get("action"),
+                "details": log.get("details"),
+                "level": "INFO",  
+            })
+        
+        return {
+            "items": formatted_items,
+            "total": total,
+            "skip": skip,
+            "limit": limit,
+            "has_more": skip + limit < total,
+        }
+    except SupabaseError as e:
+        raise HTTPException(status_code=500, detail=f"Supabase error: {str(e)}")

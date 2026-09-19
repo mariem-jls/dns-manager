@@ -32,8 +32,8 @@ export default function LoginPage() {
     <div className="flex min-h-screen flex-col items-center justify-center bg-[#f6f8fa] px-4">
       <div className="w-full max-w-md">
         <div className="mb-6 flex flex-col items-center text-center">
-          <img src="/favicon1.svg" alt="Dynamix" className="h-16" />
-          <h1 className="mt-4 text-2xl font-bold text-[#24292f]">
+          <img src="/favicon1.svg" alt="Dynamix" className="h-30" />
+          <h1 className="mt-4 text-2xl font-bold text-[#0069e9]">
             DNS Manager
           </h1>
           <p className="mt-1 text-sm text-[#586069]">
