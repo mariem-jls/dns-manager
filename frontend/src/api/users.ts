@@ -1,7 +1,7 @@
 import client from './client'
 
 export async function fetchUsers(){
-  const response = await client.get('/api/users')
+  const response = await client.get('/api/users/')
   return response.data
 }
 

@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import zones, auth, records, monitoring, diagnostics, security, audit
+from app.routers import zones, auth, records, monitoring, diagnostics, security, audit, users
 
 app = FastAPI(title="Dynamix DNS Manager API")
 
@@ -19,6 +19,7 @@ app.include_router(monitoring.router, prefix="/api/monitoring", tags=["monitorin
 app.include_router(security.router, prefix="/api/security", tags=["security"])
 app.include_router(diagnostics.router, prefix="/api/diagnostics", tags=["diagnostics"])
 app.include_router(audit.router, prefix="/api/audit", tags=["audit"])
+app.include_router(users.router, prefix="/api/users", tags=["users"])
 
 @app.get("/health")
 async def health():

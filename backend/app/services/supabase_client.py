@@ -141,22 +141,31 @@ class SupabaseClient:
     def invite_user(self, email: str, role: str = "viewer") -> dict[str, Any]:
         """Invite un utilisateur par email."""
         try:
-            response = self.client.auth.admin.invite_user_by_email(email)
+            # 1. Envoyer l'invitation
+            response = self.client.auth.admin.invite_user_by_email(
+                email,
+                options={"data": {"role": role}},
+            )
             if not response.user:
                 raise SupabaseError("Invite failed")
-            self.create_profile(
-                user_id=response.user.id,
-                email=email,
-                role=role,
-            )
+
+            # 2. Créer ou mettre à jour le profil
+            user_id = response.user.id
+            try:
+                self.create_profile(user_id=user_id, email=email, role=role)
+            except SupabaseError:
+                # Le profil existe peut-être déjà → on met à jour le rôle
+                self.client.table("user_profiles").update(
+                    {"role": role}
+                ).eq("id", user_id).execute()
+
             return {
-                "id": response.user.id,
+                "id": user_id,
                 "email": email,
                 "role": role,
             }
         except Exception as e:
             raise SupabaseError(f"Failed to invite user: {e}")
-
     # ============================================
     # ZONES
     # ============================================

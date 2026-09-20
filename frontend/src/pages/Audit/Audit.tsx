@@ -4,7 +4,7 @@ import Card from '../../components/UI/Card'
 import { useQuery } from '@tanstack/react-query'
 import { fetchAuditLogs } from '../../api/audit'
 
-const PAGE_SIZE = 8
+const PAGE_SIZE = 5
 
 export default function AuditPage(){
   const [page, setPage] = useState(0)
