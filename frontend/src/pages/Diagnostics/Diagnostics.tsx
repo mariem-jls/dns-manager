@@ -192,7 +192,6 @@ export default function DiagnosticsPage() {
           </div>
           <div className="mt-3 flex justify-end gap-2">
             <Button
-              variant="secondary"
               onClick={async () => {
                 const result = await validateAll()
                 setValidateAllResult(result)

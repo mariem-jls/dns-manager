@@ -4,24 +4,22 @@ from app.routers import zones, auth, records, monitoring, diagnostics, security,
 
 app = FastAPI(title="Dynamix DNS Manager API")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
+# UN SEUL middleware CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://dns.local",
         "http://dns.local",
         "https://api.dns.local",
+        "http://api.dns.local",
+        "http://localhost:8080",
+        "http://localhost:5173", 
     ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,
 )
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])

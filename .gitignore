@@ -73,3 +73,7 @@ bind9/config/tsig.key
 # BIND9 rndc keys (secrets)
 bind9/config/rndc.key
 bind9-secondary/config/rndc.key
+
+# Traefik certificates (secrets)
+traefik/certs/*.key
+traefik/certs/*.crt

@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { supabase } from '../../lib/supabase'
 import Card from '../../components/UI/Card'
 import Button from '../../components/UI/Button'
 import Alert from '../../components/UI/Alert'
+import { createClient } from '@supabase/supabase-js'
+
 
 export default function AuthCallback() {
   const navigate = useNavigate()
@@ -13,9 +14,20 @@ export default function AuthCallback() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [success, setSuccess] = useState(false)
 
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+
+    const supabaseCallback = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: true,
+    },
+    })
+
   useEffect(() => {
-    // Supabase détecte automatiquement le token dans l'URL
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
+    // Utiliser supabaseCallback (avec detectSessionInUrl: true)
+    supabaseCallback.auth.getSession().then(({ data: { session }, error }) => {
       if (error) {
         setError(error.message)
       } else if (session) {
@@ -41,7 +53,8 @@ export default function AuthCallback() {
     }
 
     try {
-      const { error } = await supabase.auth.updateUser({ password })
+      // Utiliser supabaseCallback (avec detectSessionInUrl: true)
+      const { error } = await supabaseCallback.auth.updateUser({ password })
       if (error) throw error
       setSuccess(true)
       setTimeout(() => navigate('/'), 2000)
