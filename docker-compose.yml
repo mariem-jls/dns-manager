@@ -2,6 +2,36 @@ version: "3.8"
 
 services:
   # ============================================
+  # TRAEFIK - Reverse proxy + HTTPS
+  # ============================================
+  traefik:
+    image: traefik:v3.1
+    container_name: dns-traefik
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic:/etc/traefik/dynamic:ro
+      - ./traefik/certs:/certs:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.rule=Host(`traefik.dns.local`)"
+      - "traefik.http.routers.dashboard.entrypoints=websecure"
+      - "traefik.http.routers.dashboard.tls=true"
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.routers.dashboard.middlewares=security-headers@file"
+    networks:
+      - dns-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
   # SERVEUR DNS BIND9 (PRIMARY)
   # ============================================
   bind9:
@@ -66,6 +96,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
   # ============================================
   # BASE DE DONNÉES POSTGRESQL
   # ============================================
@@ -103,8 +134,8 @@ services:
     image: prom/prometheus:latest
     container_name: dns-prometheus
     restart: unless-stopped
-    ports:
-      - "9090:9090"
+    # ports:
+    #   - "9090:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus-data:/prometheus
@@ -120,6 +151,12 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prometheus.rule=Host(`prometheus.dns.local`)"
+      - "traefik.http.routers.prometheus.entrypoints=websecure"
+      - "traefik.http.routers.prometheus.tls=true"
+      - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
     networks:
       - dns-network
     logging:
@@ -135,8 +172,8 @@ services:
     image: grafana/grafana:latest
     container_name: dns-grafana
     restart: unless-stopped
-    ports:
-      - "3000:3000"
+    # ports:
+    #   - "3000:3000"
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/plugins:/var/lib/grafana/plugins
@@ -148,6 +185,8 @@ services:
       - GF_AUTH_ANONYMOUS_ENABLED=false
       - GF_PLUGINS_PREINSTALL_DISABLED=true
       - GF_INSTALL_PLUGINS=
+      - GF_SERVER_ROOT_URL=https://grafana.dns.local
+      - GF_SERVER_DOMAIN=grafana.dns.local
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
       interval: 15s
@@ -156,6 +195,12 @@ services:
       start_period: 30s
     depends_on:
       - prometheus
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.dns.local`)"
+      - "traefik.http.routers.grafana.entrypoints=websecure"
+      - "traefik.http.routers.grafana.tls=true"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
     networks:
       - dns-network
     logging:
@@ -193,7 +238,7 @@ services:
     image: wazuh/wazuh-manager:4.14.7
     container_name: wazuh-manager
     restart: unless-stopped
-    profiles: [wazuh] 
+    profiles: [wazuh]
     ports:
       - "55000:55000"
     volumes:
@@ -222,7 +267,7 @@ services:
     image: kennyopennix/wazuh-exporter:latest
     container_name: wazuh-exporter
     restart: unless-stopped
-    profiles: [wazuh] 
+    profiles: [wazuh]
     ports:
       - "9116:5000"
     environment:
@@ -250,12 +295,12 @@ services:
     container_name: dns-backend
     hostname: backend
     restart: unless-stopped
-    ports:
-      - "8000:8000"
+    # ports:
+    #   - "8000:8000"
     volumes:
       - ./backend/logs:/var/log/dynamix
       - ./bind9/zones:/etc/bind/zones:rw
-      - ./bind9/config/named.conf.local:/etc/bind/named.conf.local:rw 
+      - ./bind9/config/named.conf.local:/etc/bind/named.conf.local:rw
       - ./backend/rndc.conf:/etc/bind/rndc.conf:ro
     environment:
       - TZ=Europe/Paris
@@ -281,7 +326,12 @@ services:
     depends_on:
       - bind9
       - prometheus
-      #- wazuh-manager
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=Host(`api.dns.local`)"
+      - "traefik.http.routers.backend.entrypoints=websecure"
+      - "traefik.http.routers.backend.tls=true"
+      - "traefik.http.services.backend.loadbalancer.server.port=8000"
     networks:
       - dns-network
     logging:
@@ -298,14 +348,14 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: http://localhost:8000
+        VITE_API_URL: https://api.dns.local
         VITE_SUPABASE_URL: ${SUPABASE_URL}
         VITE_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
     container_name: dns-frontend
     hostname: frontend
     restart: unless-stopped
-    ports:
-      - "8080:80"
+    # ports:
+    #   - "8080:80"
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:80 || exit 1"]
       interval: 15s
@@ -314,6 +364,12 @@ services:
       start_period: 10s
     depends_on:
       - backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`dns.local`)"
+      - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.tls=true"
+      - "traefik.http.services.frontend.loadbalancer.server.port=80"
     networks:
       - dns-network
     logging:

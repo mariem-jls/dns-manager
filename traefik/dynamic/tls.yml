@@ -1,0 +1,26 @@
+# ============================================
+# Traefik - Configuration TLS + Middlewares
+# ============================================
+
+tls:
+  certificates:
+    - certFile: /certs/dns.local.crt
+      keyFile: /certs/dns.local.key
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /certs/dns.local.crt
+        keyFile: /certs/dns.local.key
+
+http:
+  middlewares:
+    security-headers:
+      headers:
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        forceSTSHeader: true
+        contentTypeNosniff: true
+        browserXssFilter: true
+        referrerPolicy: "strict-origin-when-cross-origin"
+        customFrameOptionsValue: "SAMEORIGIN"
