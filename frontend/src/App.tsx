@@ -9,6 +9,10 @@ import DiagnosticsPage from './pages/Diagnostics/Diagnostics'
 import UsersPage from './pages/Users/Users'
 import AuditPage from './pages/Audit/Audit'
 import LoginPage from './pages/Login/Login'
+import AuthCallback from './pages/Auth/Callback'
+import ForgotPassword from './pages/Auth/ForgotPassword'
+import ResetPassword from './pages/Auth/ResetPassword'
+
 
 // Helper pour envelopper une page dans ProtectedRoute
 const protect = (element: React.ReactElement) =>
@@ -18,9 +22,17 @@ export default function App(){
   return React.createElement(
     Routes,
     null,
-    // Page de login (non protégée)
+    // ============================================
+    // Pages publiques (non protégées)
+    // ============================================
     React.createElement(Route, { path: '/login', element: React.createElement(LoginPage) }),
+    React.createElement(Route, { path: '/forgot-password', element: React.createElement(ForgotPassword) }),
+    React.createElement(Route, { path: '/auth/callback', element: React.createElement(AuthCallback) }),
+    React.createElement(Route, { path: '/auth/reset-password', element: React.createElement(ResetPassword) }),
+
+    // ============================================
     // Pages protégées
+    // ============================================
     React.createElement(Route, { path: '/', element: protect(React.createElement(Dashboard)) }),
     React.createElement(Route, { path: '/zones', element: protect(React.createElement(ZonesPage)) }),
     React.createElement(Route, { path: '/monitoring', element: protect(React.createElement(MonitoringPage)) }),

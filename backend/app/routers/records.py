@@ -9,6 +9,18 @@ from app.utils.audit_logger import log as audit_log
 router = APIRouter()
 manager = BindManager()
 
+@router.get("/count")
+async def count_records(user=Depends(get_current_user)):
+    """Compte le total des records de toutes les zones."""
+    from app.services.bind_manager import BindManager
+    manager = BindManager()
+    total = 0
+    for zone in manager.list_zones():
+        try:
+            total += len(manager.list_records(zone.name))
+        except Exception:
+            pass
+    return {"total": total}
 
 @router.get("/{zone_name}/records", response_model=list[RecordRead])
 async def list_records(zone_name: str, user=Depends(get_current_user)):
@@ -82,6 +94,8 @@ async def add_record(
         return record
     except BindManagerError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
 
 
 @router.delete("/{zone_name}/records/{record_id}")

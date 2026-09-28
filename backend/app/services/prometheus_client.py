@@ -55,18 +55,16 @@ class PrometheusClient:
         return []
 
     def query_stats(self) -> dict:
-        """Statistiques DNS."""
+        """Statistiques DNS (avec cache hit rate réel)."""
         # 1. Requêtes par seconde
         request_rate = self.query_first_value([
             'sum(rate(bind_incoming_queries_total[5m]))',
-            'sum(rate(bind_resolver_queries_total[5m]))',
             'sum(rate(bind_incoming_requests_total[5m]))',
         ])
 
-        # 2. Latence : bind_exporter n'expose pas de vraie latence (NaN)
-        # On essaie l'histogramme, sinon None
+        # 2. Latence moyenne (ms)
         latency_ms = self.query_first_value([
-            '1000 * histogram_quantile(0.95, sum by (le) (rate(bind_resolver_query_duration_seconds_bucket[5m])))',
+            '1000 * (sum(rate(bind_resolver_query_duration_seconds_sum[5m])) / clamp_min(sum(rate(bind_resolver_query_duration_seconds_count[5m])), 1))',
         ])
 
         # 3. Taux d'erreur (%)
@@ -74,12 +72,14 @@ class PrometheusClient:
             '100 * (sum(rate(bind_response_rcodes_total{rcode="SERVFAIL"}[5m])) / clamp_min(sum(rate(bind_responses_total[5m])), 1))',
         ])
 
-        # 4. Cache hit rate : non exposé par bind_exporter
-        cache_hit_rate = None
+        # 4. Cache hit rate (%) — calculé à partir des requêtes récursives vs totales
+        cache_hit_rate = self.query_first_value([
+            '100 * (1 - (sum(rate(bind_resolver_queries_total[5m])) / clamp_min(sum(rate(bind_incoming_queries_total[5m])), 1)))',
+        ])
 
         available = any(
             v is not None
-            for v in [request_rate, latency_ms, error_rate]
+            for v in [request_rate, latency_ms, error_rate, cache_hit_rate]
         )
 
         return {
@@ -133,6 +133,47 @@ class PrometheusClient:
             health['secondary'] = 'up'
 
         return health
+
+    def query_bind_info(self) -> dict:
+        """Retourne uptime, version et cache de BIND."""
+        import time
+
+        # Uptime (secondes)
+        uptime_seconds = self.query_first_value([
+            'time() - bind_boot_time_seconds',
+        ])
+
+        # Version de BIND
+        version = None
+        try:
+            samples = self.query_vector(['bind_exporter_build_info'])
+            if samples:
+                version = samples[0].get('metric', {}).get('version')
+        except Exception:
+            pass
+
+        # Config time (secondes depuis la dernière reconfig)
+        config_time_seconds = self.query_first_value([
+            'time() - bind_config_time_seconds',
+        ])
+
+        # Cache size (RRsets)
+        cache_rrsets = self.query_first_value([
+            'bind_resolver_cache_rrsets',
+        ])
+
+        # DNSSEC validations par seconde
+        dnssec_rate = self.query_first_value([
+            'sum(rate(bind_resolver_dnssec_validation_success_total[5m]))',
+        ])
+
+        return {
+            'uptime_seconds': uptime_seconds,
+            'config_time_seconds': config_time_seconds,
+            'version': version,
+            'cache_rrsets': cache_rrsets,
+            'dnssec_rate': dnssec_rate,
+        }
     def query_top_domains(self, limit: int = 10) -> list[dict]:
         """
         Top domaines.

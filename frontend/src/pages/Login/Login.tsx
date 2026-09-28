@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import Card from '../../components/UI/Card'
 import Button from '../../components/UI/Button'
@@ -80,8 +80,15 @@ export default function LoginPage() {
             <Button type="submit" disabled={loading} className="w-full justify-center">
               {loading ? 'Connexion...' : 'Se connecter'}
             </Button>
+            <Link
+              to="/forgot-password"
+              className="block text-center text-sm text-[#0969da] hover:underline">
+              Mot de passe oublié ?
+            </Link>
           </form>
         </Card>
+
+        
 
         <p className="mt-8 text-center text-xs text-[#586069]">
           © {new Date().getFullYear()} Dynamix Service — Tous droits réservés

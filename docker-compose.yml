@@ -299,6 +299,8 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_URL: http://localhost:8000
+        VITE_SUPABASE_URL: ${SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
     container_name: dns-frontend
     hostname: frontend
     restart: unless-stopped

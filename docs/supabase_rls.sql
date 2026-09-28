@@ -103,3 +103,10 @@ create policy "profiles_service_all" on public.user_profiles
     for all to service_role
     using (true)
     with check (true);
+
+
+DROP POLICY IF EXISTS "profiles_service_all" ON public.user_profiles;
+CREATE POLICY "profiles_service_all" ON public.user_profiles
+    FOR ALL TO service_role
+    USING (true)
+    WITH CHECK (true);

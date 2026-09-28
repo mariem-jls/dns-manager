@@ -11,8 +11,14 @@ RUN npm ci --silent || npm install
 
 COPY . .
 
+# Arguments pour les variables d'environnement Vite
 ARG VITE_API_URL=http://localhost:8000
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+
 ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
 
 RUN npm run build
 

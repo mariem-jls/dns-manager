@@ -24,7 +24,6 @@ export default function UsersPage(){
     },
   })
 
-  // ✅ Extraire les items de l'objet paginé
   const users = usersQuery.data?.items ?? []
   const total = usersQuery.data?.total ?? 0
 

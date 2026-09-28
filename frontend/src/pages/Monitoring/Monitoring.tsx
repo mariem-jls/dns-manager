@@ -13,6 +13,18 @@ import {
 } from '../../hooks/useMonitoring'
 import client from '../../api/client'
 
+// Helper : formatage de durée
+function formatUptime(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined) return '—'
+  const s = Math.floor(seconds)
+  const days = Math.floor(s / 86400)
+  const hours = Math.floor((s % 86400) / 3600)
+  const mins = Math.floor((s % 3600) / 60)
+  if (days > 0) return `${days}j ${hours}h`
+  if (hours > 0) return `${hours}h ${mins}m`
+  return `${mins}m`
+}
+
 export default function MonitoringPage() {
   const { data: stats, isLoading } = useMonitoringStats()
   const { data: topDomainsData, isLoading: topDomainsLoading } = useTopDomains()
@@ -23,6 +35,8 @@ export default function MonitoringPage() {
   const [series, setSeries] = useState<any[]>([])
   // Répartition par type
   const [trafficDistribution, setTrafficDistribution] = useState<any[]>([])
+  // Infos BIND
+  const [bindInfo, setBindInfo] = useState<any>(null)
 
   useEffect(() => {
     const fetchSeries = () => {
@@ -35,13 +49,20 @@ export default function MonitoringPage() {
         .then((r) => setTrafficDistribution(r.data?.items ?? []))
         .catch(() => setTrafficDistribution([]))
     }
+    const fetchBindInfo = () => {
+      client.get('/api/monitoring/bind-info')
+        .then((r) => setBindInfo(r.data))
+        .catch(() => setBindInfo(null))
+    }
 
     fetchSeries()
     fetchDistribution()
+    fetchBindInfo()
 
     const interval = setInterval(() => {
       fetchSeries()
       fetchDistribution()
+      fetchBindInfo()
     }, 60_000)
 
     return () => clearInterval(interval)
@@ -82,17 +103,23 @@ export default function MonitoringPage() {
         </Alert>
       )}
 
-      {/* Jauges */}
+      {/* ============================================ */}
+      {/* Jauges principales */}
+      {/* ============================================ */}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Gauge
-          label="Requêtes/sec"
-          value={requestRate !== null ? Math.min(100, Math.round(requestRate / 20)) : 0}
-          suffix=""
-        />
+        <Card className="border border-[#d0d7de] shadow-[0_1px_2px_rgba(27,31,36,0.04)]">
+          <div className="text-sm text-[#586069]">Requêtes/sec</div>
+          <div className="mt-2 text-3xl font-bold text-[#24292f]">
+            {requestRate !== null ? requestRate.toFixed(1) : '—'}
+          </div>
+          <div className="mt-1 text-xs text-[#586069]">
+            {requestRate !== null ? 'Source Prometheus' : 'Non disponible'}
+          </div>
+        </Card>
 
         <Card className="border border-[#d0d7de] shadow-[0_1px_2px_rgba(27,31,36,0.04)]">
           <div className="text-sm text-[#586069]">Cache hit rate</div>
-          <div className="mt-2 text-2xl font-semibold text-[#24292f]">
+          <div className="mt-2 text-3xl font-bold text-[#24292f]">
             {cacheHitRate !== null && cacheHitRate !== undefined
               ? `${cacheHitRate.toFixed(1)}%`
               : 'N/A'}
@@ -100,24 +127,81 @@ export default function MonitoringPage() {
           <div className="mt-1 text-xs text-[#586069]">
             {cacheHitRate !== null && cacheHitRate !== undefined
               ? 'Source Prometheus'
-              : 'Non exposé par bind_exporter'}
+              : 'Non disponible'}
           </div>
         </Card>
 
-        <Gauge
-          label="Latence moyenne"
-          value={latency !== null ? Math.max(0, 100 - latency * 3) : 0}
-          suffix="ms"
-        />
+       <Card className="border border-[#d0d7de] shadow-[0_1px_2px_rgba(27,31,36,0.04)]">
+        <div className="text-sm text-[#586069]">DNSSEC validations/sec</div>
+        <div className="mt-2 text-3xl font-bold text-[#24292f]">
+          {bindInfo?.dnssec_rate !== null && bindInfo?.dnssec_rate !== undefined
+            ? bindInfo.dnssec_rate.toFixed(2)
+            : '—'}
+        </div>
+        <div className="mt-1 text-xs text-[#586069]">
+          {bindInfo?.dnssec_rate !== null ? 'Source Prometheus' : 'Non disponible'}
+        </div>
+      </Card>
 
-        <Gauge
-          label="Taux d'erreur"
-          value={errorRate !== null ? Math.min(100, errorRate * 10) : 0}
-          suffix="%"
-        />
+        <Card className="border border-[#d0d7de] shadow-[0_1px_2px_rgba(27,31,36,0.04)]">
+          <div className="text-sm text-[#586069]">Taux d'erreur</div>
+          <div className="mt-2 text-3xl font-bold text-[#24292f]">
+            {errorRate !== null ? `${errorRate.toFixed(2)}%` : '—'}
+          </div>
+          <div className="mt-1 text-xs text-[#586069]">
+            {errorRate !== null ? 'Source Prometheus' : 'Non disponible'}
+          </div>
+        </Card>
       </div>
 
+      {/* ============================================ */}
+      {/* Infos BIND (uptime, version, cache, DNSSEC) */}
+      {/* ============================================ */}
+      <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Card className="border border-[#d0d7de] shadow-[0_1px_2px_rgba(27,31,36,0.04)]">
+          <div className="text-sm text-[#586069]">Uptime BIND</div>
+          <div className="mt-2 text-xl font-semibold text-[#24292f]">
+            {formatUptime(bindInfo?.uptime_seconds)}
+          </div>
+          <div className="mt-1 text-xs text-[#586069]">
+            {bindInfo?.config_time_seconds
+              ? `Dernière reconfig : ${formatUptime(bindInfo.config_time_seconds)}`
+              : 'Depuis le démarrage'}
+          </div>
+        </Card>
+
+        <Card className="border border-[#d0d7de] shadow-[0_1px_2px_rgba(27,31,36,0.04)]">
+          <div className="text-sm text-[#586069]">Version BIND</div>
+          <div className="mt-2 text-xl font-semibold text-[#24292f]">
+            {bindInfo?.version ?? '—'}
+          </div>
+          <div className="mt-1 text-xs text-[#586069]">BIND9 + bind_exporter</div>
+        </Card>
+
+        <Card className="border border-[#d0d7de] shadow-[0_1px_2px_rgba(27,31,36,0.04)]">
+          <div className="text-sm text-[#586069]">Cache (RRsets)</div>
+          <div className="mt-2 text-xl font-semibold text-[#24292f]">
+            {bindInfo?.cache_rrsets !== null && bindInfo?.cache_rrsets !== undefined
+              ? Math.round(bindInfo.cache_rrsets).toLocaleString()
+              : '—'}
+          </div>
+          <div className="mt-1 text-xs text-[#586069]">Taille du cache DNS</div>
+        </Card>
+
+        <Card className="border border-[#d0d7de] shadow-[0_1px_2px_rgba(27,31,36,0.04)]">
+          <div className="text-sm text-[#586069]">DNSSEC validations/sec</div>
+          <div className="mt-2 text-xl font-semibold text-[#24292f]">
+            {bindInfo?.dnssec_rate !== null && bindInfo?.dnssec_rate !== undefined
+              ? bindInfo.dnssec_rate.toFixed(2)
+              : '—'}
+          </div>
+          <div className="mt-1 text-xs text-[#586069]">Validations réussies</div>
+        </Card>
+      </div>
+
+      {/* ============================================ */}
       {/* Série + Répartition */}
+      {/* ============================================ */}
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.6fr_1fr]">
         <Card className="border border-[#d0d7de] shadow-[0_1px_2px_rgba(27,31,36,0.04)]">
           <div className="mb-3 flex items-center justify-between">
@@ -148,7 +232,9 @@ export default function MonitoringPage() {
         </Card>
       </div>
 
+      {/* ============================================ */}
       {/* Top domaines + Alertes */}
+      {/* ============================================ */}
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.2fr_1fr]">
         <Card className="border border-[#d0d7de] shadow-[0_1px_2px_rgba(27,31,36,0.04)]">
           <div className="mb-3 flex items-center justify-between">
@@ -226,7 +312,9 @@ export default function MonitoringPage() {
         </Card>
       </div>
 
+      {/* ============================================ */}
       {/* Santé des services */}
+      {/* ============================================ */}
       <div className="mt-6 grid gap-4 md:grid-cols-4">
         <Card className="border border-[#d0d7de] shadow-[0_1px_2px_rgba(27,31,36,0.04)]">
           <div className="text-sm text-[#586069]">Primary</div>
