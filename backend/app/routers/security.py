@@ -1,91 +1,342 @@
+import re
+import subprocess
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.config import settings
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, require_role
+from app.services.bind_manager import BindManager, BindManagerError
 from app.utils.audit_logger import log as audit_log
 
 router = APIRouter()
-RPZ_FILENAME = "rpz-blacklist.txt"
+manager = BindManager()
+
+# Chemin du fichier RPZ
+RPZ_FILE = Path("/etc/bind/rpz/rpz.local")
+
+# Regex domaine
+DOMAIN_REGEX = re.compile(
+    r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$"
+)
 
 
-def rpz_file_path() -> Path:
-    base_path = Path(settings.bind_zones_path)
-    base_path.mkdir(parents=True, exist_ok=True)
-    return base_path / RPZ_FILENAME
+# ============================================
+# HELPERS
+# ============================================
+
+def _ensure_rpz_dir():
+    """Crée le dossier RPZ s'il n'existe pas."""
+    RPZ_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 
-def read_rpz_entries() -> list[str]:
-    file_path = rpz_file_path()
-    if not file_path.exists():
+def _read_rpz() -> list[str]:
+    """Lit le fichier RPZ et retourne la liste des domaines."""
+    _ensure_rpz_dir()
+    if not RPZ_FILE.exists():
         return []
-    return [line.strip() for line in file_path.read_text().splitlines() if line.strip()]
+    domains = []
+    for line in RPZ_FILE.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith(";") or line.startswith("$"):
+            continue
+        parts = line.split()
+        if len(parts) >= 1:
+            domains.append(parts[0])
+    return domains
 
 
-def write_rpz_entries(entries: list[str]) -> None:
-    file_path = rpz_file_path()
-    file_path.write_text("\n".join(entries) + ("\n" if entries else ""))
+def _write_rpz(domains: list[str]):
+    """Réécrit le fichier RPZ."""
+    _ensure_rpz_dir()
+    content = "; RPZ blacklist — managed by Dynamix DNS Manager\n"
+    content += "$TTL 3600\n"
+    content += "@ IN SOA localhost. admin.localhost. (1 3600 900 604800 3600)\n"
+    content += "@ IN NS localhost.\n\n"
+    for domain in domains:
+        content += f"{domain} CNAME .\n"
+    RPZ_FILE.write_text(content)
 
+
+def _rpz_zone_exists() -> bool:
+    """Vérifie si la zone RPZ est déclarée dans named.conf.local."""
+    try:
+        content = manager.config_path.read_text()
+        return 'zone "rpz.local"' in content
+    except Exception:
+        return False
+
+
+def _list_dnssec_zones() -> list[str]:
+    """Liste les zones signées (fichiers .signed ou .dnssec)."""
+    zones = []
+    for zone in manager.list_zones():
+        if zone.type != "master":
+            continue
+        zone_file = manager._get_zone_file(zone.name)
+        if zone_file and zone_file.exists():
+            # Vérifier si la zone est signée (fichier .signed à côté)
+            signed_file = zone_file.with_suffix(zone_file.suffix + ".signed")
+            if signed_file.exists():
+                zones.append(zone.name)
+    return zones
+
+
+def _dnssec_key_info(zone: str) -> dict:
+    """Récupère les infos sur les clés DNSSEC d'une zone."""
+    result = {
+        "zone": zone,
+        "has_ksk": False,
+        "has_zsk": False,
+        "algorithm": None,
+        "expires_at": None,
+    }
+    try:
+        zone_file = manager._get_zone_file(zone)
+        if not zone_file:
+            return result
+        # Chercher les fichiers de clés KSK/ZSK
+        keys_dir = zone_file.parent
+        for key_file in keys_dir.glob(f"K{zone}.*.key"):
+            if "+007+" in key_file.name:  # KSK
+                result["has_ksk"] = True
+            elif "+008+" in key_file.name:  # ZSK
+                result["has_zsk"] = True
+        # Vérifier les dates d'expiration dans les fichiers .key
+        for key_file in keys_dir.glob(f"K{zone}.*.key"):
+            try:
+                content = key_file.read_text()
+                m = re.search(r"Activate:\s*(\d+)", content)
+                if m:
+                    result["expires_at"] = datetime.fromtimestamp(int(m.group(1)))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return result
+
+
+# ============================================
+# DNSSEC
+# ============================================
 
 @router.get("/dnssec")
-async def dnssec_status():
-    zones_path = Path(settings.bind_zones_path)
-    signed_zones = sorted({path.stem for path in zones_path.glob("*.signed")})
-    keys = sorted({path.name for path in zones_path.glob("*.key")})
+async def dnssec_status(user=Depends(get_current_user)):
+    """Retourne le statut DNSSEC global."""
+    signed_zones = _list_dnssec_zones()
+    zones_info = [_dnssec_key_info(z) for z in signed_zones]
     return {
-        "enabled": bool(signed_zones or keys),
+        "enabled": len(signed_zones) > 0,
         "signed_zones": signed_zones,
-        "keys": keys,
+        "zones_info": zones_info,
     }
+
+
+@router.post("/dnssec/sign")
+async def dnssec_sign(payload: dict, user=Depends(require_role("admin"))):
+    """Signe une zone avec DNSSEC."""
+    zone = payload.get("zone_name", "").strip().lower()
+    if not zone or not DOMAIN_REGEX.match(zone):
+        raise HTTPException(status_code=400, detail="Invalid zone name")
+
+    try:
+        zone_file = manager._get_zone_file(zone)
+        if not zone_file:
+            raise HTTPException(status_code=404, detail=f"Zone file not found for '{zone}'")
+
+        # Générer les clés KSK et ZSK
+        subprocess.check_output(
+            ["dnssec-keygen", "-a", "RSASHA256", "-b", "2048", "-n", "ZONE", "-f", "KSK", zone],
+            stderr=subprocess.STDOUT, text=True, timeout=30, cwd=str(zone_file.parent),
+        )
+        subprocess.check_output(
+            ["dnssec-keygen", "-a", "RSASHA256", "-b", "1024", "-n", "ZONE", "-f", "ZSK", zone],
+            stderr=subprocess.STDOUT, text=True, timeout=30, cwd=str(zone_file.parent),
+        )
+
+        # Signer la zone
+        subprocess.check_output(
+            ["dnssec-signzone", "-o", zone, str(zone_file), "-S", "-K", str(zone_file.parent)],
+            stderr=subprocess.STDOUT, text=True, timeout=60, cwd=str(zone_file.parent),
+        )
+
+        manager.reload()
+        audit_log(user.get("email", "system"), "security.dnssec.sign", f"zone={zone}")
+
+        return {"ok": True, "zone": zone, "message": "Zone signée avec succès"}
+    except subprocess.CalledProcessError as e:
+        raise HTTPException(status_code=500, detail=f"DNSSEC signing failed: {e.output}")
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="DNSSEC signing timed out")
 
 
 @router.post("/dnssec/rotate")
-async def rotate_dnssec_keys(payload: dict | None = None, user=Depends(get_current_user)):
-    zone_name = (payload or {}).get("zone_name")
-    if not zone_name:
-        raise HTTPException(status_code=400, detail="zone_name is required")
-    audit_log(user.get('email', 'system'), 'security.dnssec.rotate', f"zone={zone_name}")
-    return {
-        "ok": True,
-        "message": f"Rotation demandée pour {zone_name}",
-        "zone_name": zone_name,
-    }
+async def dnssec_rotate(payload: dict, user=Depends(require_role("admin"))):
+    """Renouvelle les clés DNSSEC d'une zone."""
+    zone = payload.get("zone_name", "").strip().lower()
+    if not zone or not DOMAIN_REGEX.match(zone):
+        raise HTTPException(status_code=400, detail="Invalid zone name")
 
+    try:
+        zone_file = manager._get_zone_file(zone)
+        if not zone_file:
+            raise HTTPException(status_code=404, detail=f"Zone file not found for '{zone}'")
+
+        # Supprimer les anciennes clés
+        for old_key in zone_file.parent.glob(f"K{zone}.*"):
+            old_key.unlink()
+
+        # Générer de nouvelles clés
+        subprocess.check_output(
+            ["dnssec-keygen", "-a", "RSASHA256", "-b", "2048", "-n", "ZONE", "-f", "KSK", zone],
+            stderr=subprocess.STDOUT, text=True, timeout=30, cwd=str(zone_file.parent),
+        )
+        subprocess.check_output(
+            ["dnssec-keygen", "-a", "RSASHA256", "-b", "1024", "-n", "ZONE", "-f", "ZSK", zone],
+            stderr=subprocess.STDOUT, text=True, timeout=30, cwd=str(zone_file.parent),
+        )
+
+        # Re-signer
+        subprocess.check_output(
+            ["dnssec-signzone", "-o", zone, str(zone_file), "-S", "-K", str(zone_file.parent)],
+            stderr=subprocess.STDOUT, text=True, timeout=60, cwd=str(zone_file.parent),
+        )
+
+        manager.reload()
+        audit_log(user.get("email", "system"), "security.dnssec.rotate", f"zone={zone}")
+
+        return {"ok": True, "zone": zone, "message": "Clés renouvelées"}
+    except subprocess.CalledProcessError as e:
+        raise HTTPException(status_code=500, detail=f"DNSSEC rotation failed: {e.output}")
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="DNSSEC rotation timed out")
+
+
+# ============================================
+# RPZ
+# ============================================
 
 @router.get("/rpz")
-async def list_rpz():
-    return {"items": read_rpz_entries()}
+async def rpz_list(user=Depends(get_current_user)):
+    """Liste les domaines bloqués."""
+    domains = _read_rpz()
+    return {"items": domains, "total": len(domains)}
 
 
 @router.post("/rpz")
-async def add_rpz_domain(payload: dict, user=Depends(get_current_user)):
-    domain = (payload or {}).get("domain", "").strip().lower()
-    if not domain:
-        raise HTTPException(status_code=400, detail="domain is required")
+async def rpz_add(payload: dict, user=Depends(require_role("admin"))):
+    """Ajoute un domaine à la liste noire."""
+    domain = payload.get("domain", "").strip().lower().rstrip(".")
+    if not domain or not DOMAIN_REGEX.match(domain):
+        raise HTTPException(status_code=400, detail="Invalid domain")
 
-    entries = read_rpz_entries()
-    if domain not in entries:
-        entries.append(domain)
-        entries.sort()
-        write_rpz_entries(entries)
-        audit_log(user.get('email', 'system'), 'security.rpz.add', f"domain={domain}")
+    domains = _read_rpz()
+    if domain in domains:
+        raise HTTPException(status_code=409, detail="Domain already blocked")
 
-    return {"ok": True, "items": entries}
+    domains.append(domain)
+    _write_rpz(domains)
+
+    # Recharger BIND
+    manager.reload()
+    audit_log(user.get("email", "system"), "security.rpz.add", f"domain={domain}")
+
+    return {"ok": True, "domain": domain}
 
 
 @router.delete("/rpz/{domain}")
-async def delete_rpz_domain(domain: str, user=Depends(get_current_user)):
-    normalized = domain.strip().lower()
-    entries = [entry for entry in read_rpz_entries() if entry != normalized]
-    write_rpz_entries(entries)
-    audit_log(user.get('email', 'system'), 'security.rpz.delete', f"domain={normalized}")
-    return {"ok": True, "items": entries}
+async def rpz_delete(domain: str, user=Depends(require_role("admin"))):
+    """Supprime un domaine de la liste noire."""
+    domain = domain.strip().lower().rstrip(".")
+    domains = _read_rpz()
 
+    if domain not in domains:
+        raise HTTPException(status_code=404, detail="Domain not found")
+
+    domains.remove(domain)
+    _write_rpz(domains)
+
+    manager.reload()
+    audit_log(user.get("email", "system"), "security.rpz.delete", f"domain={domain}")
+
+    return {"ok": True}
+
+
+# ============================================
+# DoT / DoH
+# ============================================
 
 @router.get("/dot-doh")
-async def dot_doh_status():
+async def dot_doh_status(user=Depends(get_current_user)):
+    """Retourne le statut DoT/DoH."""
+    # Vérifier la config BIND pour TLS
+    tls_enabled = False
+    tls_port = None
+    cert_path = None
+
+    try:
+        options_file = manager.config_path.parent / "named.conf.options"
+        if options_file.exists():
+            content = options_file.read_text()
+            if "tls " in content.lower():
+                tls_enabled = True
+                m = re.search(r"listen-on port (\d+)", content)
+                if m:
+                    tls_port = int(m.group(1))
+                m = re.search(r'cert-file\s+"([^"]+)"', content)
+                if m:
+                    cert_path = m.group(1)
+    except Exception:
+        pass
+
     return {
-        "dot": {"enabled": True, "port": 853, "certificate": "configured"},
-        "doh": {"enabled": True, "port": 443, "certificate": "configured"},
+        "dot": {
+            "enabled": tls_enabled,
+            "port": tls_port or 853,
+            "certificate": cert_path or "—",
+        },
+        "doh": {
+            "enabled": False,  # DoH nécessite un reverse proxy
+            "port": 443,
+            "certificate": "—",
+        },
     }
+
+
+# ============================================
+# AUDIT SÉCURITÉ
+# ============================================
+
+@router.get("/audit")
+async def security_audit(limit: int = 20, user=Depends(get_current_user)):
+    """Retourne les dernières actions de sécurité."""
+    from app.services.supabase_client import get_supabase_client, SupabaseError
+
+    try:
+        supabase = get_supabase_client()
+        client = supabase._get_service_client()
+
+        # Filtrer les actions de sécurité
+        response = (
+            client.table("audit_logs")
+            .select("*")
+            .or_("action.like.security.%,action.like.zones.%,action.like.records.%")
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+
+        items = []
+        for log in response.data or []:
+            items.append({
+                "id": log.get("id"),
+                "timestamp": log.get("created_at"),
+                "actor": log.get("actor"),
+                "action": log.get("action"),
+                "details": log.get("details"),
+            })
+
+        return {"items": items, "total": len(items)}
+    except SupabaseError as e:
+        raise HTTPException(status_code=500, detail=str(e))

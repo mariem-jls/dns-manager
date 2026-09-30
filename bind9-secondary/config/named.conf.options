@@ -25,7 +25,27 @@ options {
     version "not available";
     minimal-responses yes;
     max-cache-size 256M;
-};
-statistics-channels {
-        inet 0.0.0.0 port 8053 allow { 172.16.0.0/12; 127.0.0.1; };
+
+    // ============================================
+    // Statistics (DANS options)
+    // ============================================
+    statistics-file "/var/cache/bind/named.stats";
+    zone-statistics yes;
+
+    // ============================================
+    // Response Rate Limiting (RRL)
+    // ============================================
+    rate-limit {
+        responses-per-second 5;
+        window 5;
+        slip 2;
+        errors-per-second 5;
+        all-per-second 20;
+        log-only no;
+        exempt-clients {
+            127.0.0.1;
+            172.16.0.0/12;
+            192.168.1.0/24;
+        };
     };
+};

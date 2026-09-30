@@ -1,6 +1,6 @@
 acl LAN {
-    192.168.1.0/24;      // Réseau Wi-Fi
-    172.16.0.0/12;       // Toute la plage Docker (172.16 → 172.31)
+    192.168.1.0/24;
+    172.16.0.0/12;
     127.0.0.1;
 };
 
@@ -26,10 +26,42 @@ options {
     minimal-responses yes;
     max-cache-size 512M;
 
+    //  statistics-file et zone-statistics DANS options
+    statistics-file "/var/cache/bind/named.stats";
+    zone-statistics yes;
+
+    // RRL
+    rate-limit {
+        responses-per-second 5;
+        window 5;
+        slip 2;
+        errors-per-second 5;
+        all-per-second 20;
+        log-only no;
+        exempt-clients {
+            127.0.0.1;
+            172.16.0.0/12;
+            192.168.1.0/24;
+        };
+    };
 };
+
 controls {
     inet 0.0.0.0 port 953 allow { 172.16.0.0/12; } keys { "rndc-key"; };
 };
+
 statistics-channels {
-        inet 0.0.0.0 port 8053 allow { 172.16.0.0/12; 127.0.0.1; };
+    inet 0.0.0.0 port 8053 allow { 172.16.0.0/12; 127.0.0.1; };
+};
+
+logging {
+    channel default_log {
+        file "/var/log/named/named.log" versions 5 size 20m;
+        print-time yes;
+        print-severity yes;
+        print-category yes;
+        severity info;
     };
+    category default { default_log; };
+    category rate-limit { default_log; };
+};
