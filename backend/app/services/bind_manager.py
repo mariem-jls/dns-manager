@@ -589,3 +589,141 @@ class BindManager:
         
         self.config_path.write_text(new_content)
         return True
+
+    # ============================================
+    # RPZ (Response Policy Zone)
+    # ============================================
+    RPZ_FILE = "rpz.local.db"
+
+    def _rpz_path(self) -> Path:
+        """Retourne le chemin du fichier RPZ."""
+        return self.zones_path / self.RPZ_FILE
+
+    def list_rpz_entries(self) -> list[str]:
+        """Liste les domaines bloqués."""
+        rpz_file = self._rpz_path()
+        if not rpz_file.exists():
+            return []
+
+        entries = []
+        for line in rpz_file.read_text().splitlines():
+            line = line.strip()
+            # Ignorer commentaires, SOA, NS, directives
+            if (not line
+                or line.startswith(";")
+                or line.startswith("$")
+                or "SOA" in line.upper()
+                or "NS" in line.upper().split()[1:2]
+                or "CNAME" not in line.upper()):
+                continue
+
+            # Extraire le domaine (premier token)
+            parts = line.split()
+            if parts:
+                domain = parts[0].lower().rstrip(".")
+                if domain and domain != "@":
+                    entries.append(domain)
+
+        return entries
+
+    def add_rpz_entry(self, domain: str) -> bool:
+        """Ajoute un domaine à la RPZ."""
+        # Valider le domaine
+        normalized = domain.strip().lower().rstrip(".")
+
+        if not normalized:
+            raise BindManagerError("Domain is required")
+
+        # Regex simple
+        import re
+        if not re.match(r"^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$", normalized):
+            raise BindManagerError(f"Invalid domain: {domain}")
+
+        rpz_file = self._rpz_path()
+
+        # Lire le contenu actuel
+        if rpz_file.exists():
+            content = rpz_file.read_text()
+        else:
+            content = self._generate_rpz_template()
+
+        # Vérifier si déjà présent
+        if f"\n{normalized}" in content or content.startswith(f"{normalized}"):
+            return False  # Déjà présent
+
+        # Ajouter la ligne
+        content += f"\n{normalized}    CNAME   ."
+
+        rpz_file.write_text(content)
+
+        # Incrémenter le serial de la RPZ
+        self._increment_rpz_serial()
+
+        # Recharger BIND
+        self.reload()
+
+        return True
+
+    def remove_rpz_entry(self, domain: str) -> bool:
+        """Retire un domaine de la RPZ."""
+        normalized = domain.strip().lower().rstrip(".")
+        rpz_file = self._rpz_path()
+
+        if not rpz_file.exists():
+            return False
+
+        lines = rpz_file.read_text().splitlines()
+        new_lines = []
+        removed = False
+
+        for line in lines:
+            stripped = line.strip()
+            # Garder tout sauf le domaine à supprimer
+            if stripped and not stripped.startswith(";"):
+                parts = stripped.split()
+                if parts and parts[0].lower().rstrip(".") == normalized:
+                    removed = True
+                    continue
+            new_lines.append(line)
+
+        if not removed:
+            return False
+
+        rpz_file.write_text("\n".join(new_lines) + "\n")
+
+        # Incrémenter le serial
+        self._increment_rpz_serial()
+
+        # Recharger BIND
+        self.reload()
+
+        return True
+
+    def _generate_rpz_template(self) -> str:
+        """Génère un template RPZ vide."""
+        return """$TTL 60
+@   IN  SOA localhost. root.localhost. (
+        1       ; serial
+        3600    ; refresh
+        900     ; retry
+        604800  ; expire
+        60      ; minimum
+)
+
+@   IN  NS  localhost.
+"""
+
+    def _increment_rpz_serial(self) -> None:
+        """Incrémente le serial de la RPZ."""
+        import re
+        rpz_file = self._rpz_path()
+        if not rpz_file.exists():
+            return
+
+        content = rpz_file.read_text()
+        match = re.search(r"(\d+)\s*;\s*serial", content)
+        if match:
+            old_serial = int(match.group(1))
+            new_serial = old_serial + 1
+            content = content[:match.start(1)] + str(new_serial) + content[match.end(1):]
+            rpz_file.write_text(content)

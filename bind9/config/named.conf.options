@@ -44,6 +44,14 @@ options {
             192.168.1.0/24;
         };
     };
+
+    // ============================================
+    // Response Policy Zone (RPZ)
+    // ============================================
+    response-policy {
+        zone "rpz.local";
+    } qname-wait-recurse no
+      break-dnssec yes;
 };
 
 controls {

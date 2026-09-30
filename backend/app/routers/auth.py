@@ -30,15 +30,13 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
         # Récupérer le profil (rôle)
     try:
         profile = supabase.get_profile(session["user"]["id"])
-        print(f"DEBUG profile: {profile}", flush=True)   # ← AJOUTER
     except SupabaseError as e:
-        print(f"DEBUG SupabaseError: {e}", flush=True)   # ← AJOUTER
         profile = None
 
     user = {
         "id": session["user"]["id"],
         "email": session["user"]["email"],
-        "role": (profile or {}).get("role", "admin"),
+        "role": (profile or {}).get("role", "viewer"),
     }
 
     audit_log(user["email"], "auth.login", f"user_id={user['id']}")

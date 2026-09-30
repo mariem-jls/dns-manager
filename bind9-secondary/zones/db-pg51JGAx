@@ -1,0 +1,16 @@
+;
+; Zone reverse pour 192.168.1.0/24
+;
+$TTL    604800
+@       IN      SOA     ns1.dynamix.com. admin.dynamix.com. (
+                     2025071001         ; Serial
+                     604800            ; Refresh
+                     86400             ; Retry
+                     2419200           ; Expire
+                     604800 )          ; Negative Cache TTL
+
+@       IN      NS      ns1.dynamix.com.
+
+102     IN      PTR     ns1.dynamix.com.
+102     IN      PTR     www.dynamix.com.
+20      IN      PTR     mail.dynamix.com.

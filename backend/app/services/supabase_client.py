@@ -1,18 +1,13 @@
 """
 Client Supabase pour la gestion des métadonnées DNS.
 
-Supabase sert à stocker ce que BIND ne peut pas stocker :
-- Description des zones
-- Propriétaire / créateur
-- Dates de création / modification
-- Historique des actions (audit)
-
-IMPORTANT : On utilise DEUX clients Supabase :
-- self.client : pour l'auth (peut être modifié par sign_in)
-- self.service_client : pour les opérations DB (jamais modifié, garde service_role)
+Utilise httpx pour les opérations DB (bypass RLS garanti).
+Utilise le SDK Supabase uniquement pour l'authentification.
 """
 
 from typing import Any
+
+import httpx
 
 from supabase import create_client, Client
 
@@ -25,11 +20,6 @@ class SupabaseError(Exception):
 
 
 class SupabaseClient:
-    """
-    Client Supabase avec le service_role key.
-    ⚠️ Utiliser uniquement côté backend (jamais exposer au frontend).
-    """
-
     def __init__(
         self,
         url: str | None = None,
@@ -44,21 +34,64 @@ class SupabaseClient:
                 "Set SUPABASE_URL and SUPABASE_SERVICE_KEY in .env"
             )
 
-        # Client pour l'auth (peut être modifié par sign_in)
+        # Client SDK uniquement pour l'auth
         self.client: Client = create_client(self.url, self.key)
-        
-        # Client séparé pour les opérations DB (jamais modifié)
-        self.service_client: Client = create_client(self.url, self.key)
-
-    def _get_service_client(self) -> Client:
-        """
-        Crée un nouveau client Supabase avec service_role.
-        Utilisé pour les opérations DB (isole l'état de l'auth).
-        """
-        return create_client(self.url, self.key)
 
     # ============================================
-    # AUTH
+    # REST HELPERS (httpx)
+    # ============================================
+    def _rest_headers(self) -> dict:
+        return {
+            "apikey": self.key,
+            "Authorization": f"Bearer {self.key}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+
+    def _rest_get(self, table: str, params: dict | None = None) -> list[dict]:
+        """Requête GET directe à l'API REST Supabase (bypass RLS garanti)."""
+        url = f"{self.url}/rest/v1/{table}"
+        response = httpx.get(
+            url,
+            headers=self._rest_headers(),
+            params=params or {},
+            timeout=10.0,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def _rest_post(self, table: str, data: dict) -> dict:
+        """Requête POST directe à l'API REST Supabase."""
+        url = f"{self.url}/rest/v1/{table}"
+        headers = self._rest_headers()
+        headers["Prefer"] = "return=representation"
+        response = httpx.post(url, headers=headers, json=data, timeout=10.0)
+        response.raise_for_status()
+        result = response.json()
+        return result[0] if result else {}
+
+    def _rest_patch(self, table: str, params: dict, data: dict) -> list[dict]:
+        """Requête PATCH directe à l'API REST Supabase."""
+        url = f"{self.url}/rest/v1/{table}"
+        headers = self._rest_headers()
+        headers["Prefer"] = "return=representation"
+        response = httpx.patch(
+            url, headers=headers, params=params, json=data, timeout=10.0
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def _rest_delete(self, table: str, params: dict) -> bool:
+        """Requête DELETE directe à l'API REST Supabase."""
+        url = f"{self.url}/rest/v1/{table}"
+        response = httpx.delete(
+            url, headers=self._rest_headers(), params=params, timeout=10.0
+        )
+        response.raise_for_status()
+        return True
+
+    # ============================================
+    # AUTH (utilise le SDK Supabase)
     # ============================================
     def sign_in(self, email: str, password: str) -> dict[str, Any]:
         """Connecte un utilisateur via Supabase Auth."""
@@ -94,9 +127,10 @@ class SupabaseClient:
             response = self.client.auth.get_user(access_token)
             if not response or not response.user:
                 return None
-            
+
             email = response.user.email
             if not email:
+                # Fallback : décoder le JWT manuellement
                 import base64
                 import json
                 try:
@@ -107,7 +141,7 @@ class SupabaseClient:
                     email = decoded.get('email')
                 except Exception:
                     email = None
-            
+
             return {
                 "id": response.user.id,
                 "email": email,
@@ -117,42 +151,30 @@ class SupabaseClient:
             return None
 
     # ============================================
-    # PROFILES (service_role)
+    # PROFILES (httpx)
     # ============================================
     def get_profile(self, user_id: str) -> dict[str, Any] | None:
-        """Récupère le profil (rôle) d'un utilisateur."""
+        """Récupère le profil (rôle) via REST."""
         try:
-            # Utiliser service_client directement (pas _get_service_client)
-            response = (
-                self.service_client.table("user_profiles")
-                .select("*")
-                .eq("id", user_id)
-                .limit(1)
-                .execute()
+            data = self._rest_get(
+                "user_profiles",
+                {"id": f"eq.{user_id}", "limit": 1},
             )
-            if response.data and len(response.data) > 0:
-                return response.data[0]
-            return None
+            return data[0] if data else None
         except Exception as e:
             print(f"DEBUG get_profile error: {e}", flush=True)
             return None
 
     def create_profile(
-        self,
-        user_id: str,
-        email: str,
-        role: str = "viewer",
+        self, user_id: str, email: str, role: str = "viewer"
     ) -> dict[str, Any]:
         """Crée un profil utilisateur."""
         try:
-            response = self.service_client.table("user_profiles").insert({
+            return self._rest_post("user_profiles", {
                 "id": user_id,
                 "email": email,
                 "role": role,
-            }).execute()
-            if not response.data:
-                raise SupabaseError("Insert returned no data")
-            return response.data[0]
+            })
         except Exception as e:
             raise SupabaseError(f"Failed to create profile: {e}")
 
@@ -170,42 +192,35 @@ class SupabaseClient:
             try:
                 self.create_profile(user_id=user_id, email=email, role=role)
             except SupabaseError:
-                self.service_client.table("user_profiles").update(
-                    {"role": role}
-                ).eq("id", user_id).execute()
+                # Profil existe déjà → mise à jour du rôle
+                self._rest_patch(
+                    "user_profiles",
+                    {"id": f"eq.{user_id}"},
+                    {"role": role},
+                )
 
-            return {
-                "id": user_id,
-                "email": email,
-                "role": role,
-            }
+            return {"id": user_id, "email": email, "role": role}
         except Exception as e:
             raise SupabaseError(f"Failed to invite user: {e}")
 
     # ============================================
-    # ZONES (service_role)
+    # ZONES (httpx)
     # ============================================
     def list_zones(self) -> list[dict[str, Any]]:
         """Liste toutes les métadonnées de zones."""
         try:
-            response = self.service_client.table("dns_zones").select("*").execute()
-            return response.data or []
+            return self._rest_get("dns_zones")
         except Exception as e:
             raise SupabaseError(f"Failed to list zones: {e}")
 
     def get_zone(self, name: str) -> dict[str, Any] | None:
         """Récupère les métadonnées d'une zone par son nom."""
         try:
-            response = (
-                self.service_client.table("dns_zones")
-                .select("*")
-                .eq("name", name)
-                .limit(1)
-                .execute()
+            data = self._rest_get(
+                "dns_zones",
+                {"name": f"eq.{name}", "limit": 1},
             )
-            if response.data and len(response.data) > 0:
-                return response.data[0]
-            return None
+            return data[0] if data else None
         except Exception as e:
             raise SupabaseError(f"Failed to get zone '{name}': {e}")
 
@@ -218,16 +233,12 @@ class SupabaseClient:
     ) -> dict[str, Any]:
         """Crée les métadonnées d'une zone."""
         try:
-            data = {
+            return self._rest_post("dns_zones", {
                 "name": name,
                 "type": ztype,
                 "description": description,
                 "created_by": created_by,
-            }
-            response = self.service_client.table("dns_zones").insert(data).execute()
-            if not response.data:
-                raise SupabaseError("Insert returned no data")
-            return response.data[0]
+            })
         except Exception as e:
             raise SupabaseError(f"Failed to create zone '{name}': {e}")
 
@@ -245,33 +256,24 @@ class SupabaseClient:
             if not data:
                 return self.get_zone(name)
 
-            response = (
-                self.service_client.table("dns_zones")
-                .update(data)
-                .eq("name", name)
-                .execute()
+            result = self._rest_patch(
+                "dns_zones",
+                {"name": f"eq.{name}"},
+                data,
             )
-            if not response.data:
-                return None
-            return response.data[0]
+            return result[0] if result else None
         except Exception as e:
             raise SupabaseError(f"Failed to update zone '{name}': {e}")
 
     def delete_zone(self, name: str) -> bool:
         """Supprime les métadonnées d'une zone."""
         try:
-            response = (
-                self.service_client.table("dns_zones")
-                .delete()
-                .eq("name", name)
-                .execute()
-            )
-            return bool(response.data)
+            return self._rest_delete("dns_zones", {"name": f"eq.{name}"})
         except Exception as e:
             raise SupabaseError(f"Failed to delete zone '{name}': {e}")
 
     # ============================================
-    # AUDIT LOGS (service_role)
+    # AUDIT LOGS (httpx)
     # ============================================
     def log_action(
         self,
@@ -281,27 +283,24 @@ class SupabaseClient:
     ) -> None:
         """Enregistre une action dans l'audit log Supabase."""
         try:
-            self.service_client.table("audit_logs").insert({
+            self._rest_post("audit_logs", {
                 "actor": actor,
                 "action": action,
                 "details": details,
-            }).execute()
+            })
         except Exception as e:
-            print(f"WARNING: Failed to log action to Supabase: {e}")
+            print(f"WARNING: Failed to log action: {e}")
 
     # ============================================
-    # RECORDS (service_role)
+    # RECORDS (httpx)
     # ============================================
     def list_records(self, zone_name: str) -> list[dict[str, Any]]:
         """Liste les métadonnées des records d'une zone."""
         try:
-            response = (
-                self.service_client.table("dns_records")
-                .select("*")
-                .eq("zone_name", zone_name)
-                .execute()
+            return self._rest_get(
+                "dns_records",
+                {"zone_name": f"eq.{zone_name}"},
             )
-            return response.data or []
         except Exception as e:
             raise SupabaseError(f"Failed to list records: {e}")
 
@@ -317,7 +316,7 @@ class SupabaseClient:
     ) -> dict[str, Any]:
         """Crée les métadonnées d'un record."""
         try:
-            data = {
+            return self._rest_post("dns_records", {
                 "zone_name": zone_name,
                 "name": name,
                 "type": rtype,
@@ -325,11 +324,7 @@ class SupabaseClient:
                 "ttl": ttl,
                 "priority": priority,
                 "created_by": created_by,
-            }
-            response = self.service_client.table("dns_records").insert(data).execute()
-            if not response.data:
-                raise SupabaseError("Insert returned no data")
-            return response.data[0]
+            })
         except Exception as e:
             raise SupabaseError(f"Failed to create record: {e}")
 
@@ -342,48 +337,42 @@ class SupabaseClient:
     ) -> bool:
         """Supprime les métadonnées d'un record."""
         try:
-            response = (
-                self.service_client.table("dns_records")
-                .delete()
-                .eq("zone_name", zone_name)
-                .eq("name", name)
-                .eq("type", rtype)
-                .eq("value", value)
-                .execute()
-            )
-            return bool(response.data)
+            return self._rest_delete("dns_records", {
+                "zone_name": f"eq.{zone_name}",
+                "name": f"eq.{name}",
+                "type": f"eq.{rtype}",
+                "value": f"eq.{value}",
+            })
         except Exception as e:
             raise SupabaseError(f"Failed to delete record: {e}")
 
     # ============================================
-    # USERS (service_role)
+    # USERS (httpx)
     # ============================================
     def list_users(self) -> list[dict[str, Any]]:
         """Liste les profils utilisateurs."""
         try:
-            response = self.service_client.table("user_profiles").select("*").execute()
-            return response.data or []
+            return self._rest_get("user_profiles")
         except Exception as e:
             raise SupabaseError(f"Failed to list users: {e}")
 
     def get_user(self, user_id: str) -> dict[str, Any] | None:
         """Récupère un profil utilisateur."""
         try:
-            response = (
-                self.service_client.table("user_profiles")
-                .select("*")
-                .eq("id", user_id)
-                .limit(1)
-                .execute()
+            data = self._rest_get(
+                "user_profiles",
+                {"id": f"eq.{user_id}", "limit": 1},
             )
-            if response.data and len(response.data) > 0:
-                return response.data[0]
-            return None
+            return data[0] if data else None
         except Exception as e:
             raise SupabaseError(f"Failed to get user '{user_id}': {e}")
 
 
+# ============================================
+# Lazy loading de l'instance globale
+# ============================================
 _supabase_client: SupabaseClient | None = None
+
 
 def get_supabase_client() -> SupabaseClient:
     """Retourne l'instance globale (lazy loading)."""

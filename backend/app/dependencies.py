@@ -34,14 +34,33 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Récupérer le rôle
+    # ============================================
+    # Récupérer le rôle avec fallback
+    # ============================================
     role = "viewer"
+
+    # Tentative 1 : par ID (méthode normale)
     try:
         profile = supabase.get_profile(user_info["id"])
         if profile:
             role = profile.get("role", "viewer")
-    except SupabaseError:
-        pass
+            print(f"DEBUG: role found by ID: {role}", flush=True)
+    except SupabaseError as e:
+        print(f"DEBUG: get_profile by ID failed: {e}", flush=True)
+
+    # Tentative 2 : par email (FALLBACK)
+    if role == "viewer" and user_info.get("email"):
+        try:
+            users = supabase.list_users()
+            for u in users:
+                if u.get("email") == user_info["email"]:
+                    role = u.get("role", "viewer")
+                    print(f"DEBUG: role found by email fallback: {role}", flush=True)
+                    break
+        except SupabaseError as e:
+            print(f"DEBUG: fallback by email failed: {e}", flush=True)
+
+    print(f"DEBUG: final role = {role} for {user_info.get('email')}", flush=True)
 
     return {
         "id": user_info["id"],

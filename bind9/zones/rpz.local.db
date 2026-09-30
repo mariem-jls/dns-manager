@@ -1,0 +1,22 @@
+$TTL 60
+@   IN  SOA localhost. root.localhost. (
+        2       ; serial
+        3600    ; refresh
+        900     ; retry
+        604800  ; expire
+        60      ; minimum
+)
+
+@   IN  NS  localhost.
+
+; ============================================
+; RPZ - Liste noire de domaines
+; Format : <domaine>  CNAME  .
+; Le "." signifie "répondre NXDOMAIN" (bloquer)
+; ============================================
+
+; Exemples (à commenter si tu ne veux pas bloquer)
+; malware.example.com     CNAME   .
+; phishing.example.com    CNAME   .
+
+malware.example.com    CNAME   .

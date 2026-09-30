@@ -18,3 +18,8 @@ zone "1.168.192.in-addr.arpa" {
     masters { 172.25.0.2 port 53; };
     file "/var/lib/bind/db.1.168.192.rev";
 };
+zone "rpz.local" {
+    type slave;
+    masters { 172.25.0.2 port 53; };
+    file "/var/lib/bind/rpz.local.db";
+};

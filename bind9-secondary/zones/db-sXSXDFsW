@@ -1,0 +1,22 @@
+;
+; Zone forward pour dynamix.com
+;
+$TTL    604800
+@       IN      SOA     ns1.dynamix.com. admin.dynamix.com. (
+                     2025071001         ; Serial
+                     604800            ; Refresh
+                     86400             ; Retry
+                     2419200           ; Expire
+                     604800 )          ; Negative Cache TTL
+
+; Name Servers
+@       IN      NS      ns1.dynamix.com.
+
+; A Records
+@       IN      A       192.168.1.102    
+ns1     IN      A       192.168.1.102    
+www     IN      A       192.168.1.102    
+mail    IN      A       192.168.1.20
+
+; MX Record
+@       IN      MX      10      mail.dynamix.com.

@@ -25,3 +25,8 @@ zone "test-2026.com" {
     notify yes;
     allow-transfer { key "axfr-key"; };
 };
+zone "rpz.local" {
+    type master;
+    file "/var/lib/bind/rpz.local.db";
+    allow-transfer { none; };
+};
