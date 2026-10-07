@@ -1,9 +1,14 @@
 import logging
+import os
 from logging.handlers import RotatingFileHandler
 
 logger = logging.getLogger('audit')
 if not logger.handlers:
-    handler = RotatingFileHandler('/var/log/dynamix-audit.log', maxBytes=5_000_000, backupCount=3)
+    log_path = os.getenv('AUDIT_LOG_PATH', '/var/log/dynamix-audit.log')
+    try:
+        handler = RotatingFileHandler(log_path, maxBytes=5_000_000, backupCount=3)
+    except PermissionError:
+        handler = logging.StreamHandler()
     formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s', datefmt='%Y-%m-%dT%H:%M:%S')
     handler.setFormatter(formatter)
     logger.addHandler(handler)
