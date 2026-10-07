@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Récupérer le code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Installer Python
         uses: actions/setup-python@v5
@@ -49,7 +49,7 @@ jobs:
 
     steps:
       - name: Récupérer le code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Installer Python
         uses: actions/setup-python@v5
@@ -89,7 +89,7 @@ jobs:
 
     steps:
       - name: Récupérer le code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Se connecter à GHCR
         uses: docker/login-action@v3
