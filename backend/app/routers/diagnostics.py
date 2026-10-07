@@ -1,12 +1,9 @@
 import ipaddress
 import re
 import subprocess
-import time
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.config import settings
 from app.dependencies import get_current_user
 from app.services.bind_manager import BindManager, BindManagerError
 from app.utils.audit_logger import log as audit_log

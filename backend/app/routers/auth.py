@@ -20,7 +20,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
             email=form_data.username,
             password=form_data.password,
         )
-    except SupabaseError as e:
+    except SupabaseError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
@@ -30,7 +30,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
         # Récupérer le profil (rôle)
     try:
         profile = supabase.get_profile(session["user"]["id"])
-    except SupabaseError as e:
+    except SupabaseError:
         profile = None
 
     user = {

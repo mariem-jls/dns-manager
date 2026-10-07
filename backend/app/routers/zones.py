@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, status, Query
-from typing import List, Optional
+from typing import Optional
 
 from app.schemas.zone import ZoneCreate, ZoneRead, ZoneUpdate
 from app.services.bind_manager import BindManager, BindManagerError

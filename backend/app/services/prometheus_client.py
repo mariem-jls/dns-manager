@@ -136,8 +136,6 @@ class PrometheusClient:
 
     def query_bind_info(self) -> dict:
         """Retourne uptime, version et cache de BIND."""
-        import time
-
         # Uptime (secondes)
         uptime_seconds = self.query_first_value([
             'time() - bind_boot_time_seconds',
