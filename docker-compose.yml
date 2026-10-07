@@ -404,6 +404,85 @@ services:
         max-size: "5m"
         max-file: "2"
 
+  # ============================================
+  # FALCO - Runtime Security
+  # ============================================
+  falco:
+    image: falcosecurity/falco:0.37.1
+    container_name: dns-falco
+    restart: unless-stopped
+    privileged: true
+    pid: "host"                              
+    environment:
+      FALCO_DRIVER_LOADER_OPTIONS: ebpf
+    volumes:
+    - /var/run/docker.sock:/host/var/run/docker.sock:ro
+    - /proc:/host/proc:ro
+    - /boot:/host/boot:ro
+    - /lib/modules:/host/lib/modules:ro
+    - /usr:/host/usr:ro
+    - /etc:/host/etc:ro
+    - /dev:/host/dev:ro
+    - /sys/kernel/debug:/sys/kernel/debug:rw
+    - /sys/kernel/tracing:/sys/kernel/tracing:rw
+    - /sys/kernel/btf:/sys/kernel/btf:ro
+    - /sys/fs/bpf:/sys/fs/bpf:rw
+    - /var/run/docker.sock:/var/run/docker.sock:ro 
+    - ./falco/falco_rules.local.yaml:/etc/falco/rules.d/falco_rules.local.yaml:ro
+    - ./falco/falco.yaml:/etc/falco/falco.yaml
+    #environment:
+    command:
+      - /usr/bin/falco
+      - -c
+      - /etc/falco/falco.yaml
+    networks:
+      - dns-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+  # ============================================
+  # FALCO EXPORTER (métriques Prometheus)
+  # ============================================
+  falco-exporter:
+    image: falcosecurity/falco-exporter:latest
+    container_name: dns-falco-exporter
+    restart: unless-stopped
+    ports:
+      - "9376:9376"
+    volumes:
+      - /tmp/falco.sock:/tmp/falco.sock:ro
+    depends_on:
+      - falco
+    networks:
+      - dns-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # FALCOSIDEKICK (routeur d'alertes)
+  # ============================================
+  falcosidekick:
+    image: falcosecurity/falcosidekick:latest
+    container_name: dns-falcosidekick
+    restart: unless-stopped
+    ports:
+      - "2801:2801"
+    environment:
+      - WEBHOOK_ADDRESS=http://backend:8000/api/security/falco/events
+      - WEBHOOK_MINIMUMPRIORITY=notice
+      - DEBUG=false
+    networks:
+      - dns-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 # ============================================
 # RÉSEAUX
 # ============================================

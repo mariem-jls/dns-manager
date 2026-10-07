@@ -109,3 +109,34 @@ CREATE POLICY "records_service_all" ON public.dns_records
     FOR ALL TO service_role
     USING (true) WITH CHECK (true);
 
+
+create table if not exists public.falco_events (
+    id uuid primary key default gen_random_uuid(),
+    priority text not null,
+    rule text not null,
+    output text,
+    container_name text,
+    container_image text,
+    user_name text,
+    proc_cmdline text,
+    source text default 'syscall',
+    hostname text,
+    tags jsonb default '[]'::jsonb,
+    raw jsonb,
+    created_at timestamptz not null default now()
+);
+
+create index if not exists idx_falco_events_priority on public.falco_events (priority);
+create index if not exists idx_falco_events_container on public.falco_events (container_name);
+create index if not exists idx_falco_events_created_at on public.falco_events (created_at desc);
+
+-- RLS
+alter table public.falco_events enable row level security;
+
+drop policy if exists "falco_select" on public.falco_events;
+create policy "falco_select" on public.falco_events
+    for select using (auth.role() = 'authenticated');
+
+drop policy if exists "falco_insert" on public.falco_events;
+create policy "falco_insert" on public.falco_events
+    for insert with check (true);  -- Falcosidekick n'a pas d'auth

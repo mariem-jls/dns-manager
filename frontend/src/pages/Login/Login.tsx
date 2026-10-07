@@ -18,6 +18,13 @@ export default function LoginPage() {
     e.preventDefault()
     setError(null)
     setLoading(true)
+
+    // ✅ Nettoyer le localStorage AVANT le login
+    // (évite les conflits entre sessions Firefox)
+    localStorage.removeItem('dns_token')
+    localStorage.removeItem('dns_user')
+    sessionStorage.clear()
+
     try {
       await login({ username: email, password })
       navigate('/')
@@ -87,8 +94,6 @@ export default function LoginPage() {
             </Link>
           </form>
         </Card>
-
-        
 
         <p className="mt-8 text-center text-xs text-[#586069]">
           © {new Date().getFullYear()} Dynamix Service — Tous droits réservés

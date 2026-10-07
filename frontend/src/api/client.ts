@@ -5,6 +5,12 @@ const client = axios.create({
   timeout: 30_000,
 })
 
+export function clearAuthStorage() {
+  localStorage.removeItem('dns_token')
+  localStorage.removeItem('dns_user')
+  sessionStorage.clear()
+}
+
 client.interceptors.request.use((config) => {
   const token = localStorage.getItem('dns_token')
   if (token) {
@@ -17,8 +23,7 @@ client.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('dns_token')
-      localStorage.removeItem('dns_user')
+      clearAuthStorage()
       if (window.location.pathname !== '/login') {
         window.location.href = '/login'
       }

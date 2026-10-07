@@ -264,20 +264,19 @@ async def security_audit(limit: int = 20, user=Depends(get_current_user)):
 
     try:
         supabase = get_supabase_client()
-        # Utilise le service_client (singleton corrigé)
-        client = supabase.service_client
 
-        response = (
-            client.table("audit_logs")
-            .select("*")
-            .or_("action.like.security.%,action.like.zones.%,action.like.records.%")
-            .order("created_at", desc=True)
-            .limit(limit)
-            .execute()
+        # Utiliser _rest_get (httpx)
+        events = supabase._rest_get(
+            "audit_logs",
+            {
+                "or": "(action.like.security.%,action.like.zones.%,action.like.records.%,action.like.falco.%)",
+                "order": "created_at.desc",
+                "limit": limit,
+            },
         )
 
         items = []
-        for log in response.data or []:
+        for log in events or []:
             items.append({
                 "id": log.get("id"),
                 "timestamp": log.get("created_at"),
@@ -289,3 +288,6 @@ async def security_audit(limit: int = 20, user=Depends(get_current_user)):
         return {"items": items, "total": len(items)}
     except SupabaseError as e:
         raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        print(f"DEBUG security_audit error: {e}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Audit error: {e}")

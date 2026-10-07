@@ -1,79 +1,87 @@
-# Docker
-*.log
-*.pid
-.env
-/data/
-/grafana/data/
-/prometheus/data/
-postgres/data/
-bind9/logs/
-bind9/cache/
-
-# Python
-__pycache__/
-*.pyc
-venv/
-.venv/
-
-# Node
-node_modules/
-dist/
-build/
-
-
-# .gitignore
-# Fichiers sensibles
+# ============================================
+# FICHIERS SENSIBLES
+# ============================================
 .env
 *.env
 .env.*
 !.env.example
+*.key
+*.pem
+secrets/
 
-# Données Docker
+# ============================================
+# DOCKER / DATA PERSISTANTES
+# ============================================
+*.log
+*.pid
+/data/
 /postgres/data/
 /bind9/cache/
 /bind9/logs/
+/bind9-secondary/cache/
+/bind9-secondary/logs/
 /prometheus/data/
 /grafana/data/
+/grafana/plugins/
+/wazuh/
 
-# Backend
+# ============================================
+# BIND9 (runtime + secrets)
+# ============================================
+bind9/config/tsig.key
+bind9-secondary/config/tsig.key
+bind9/config/rndc.key
+bind9-secondary/config/rndc.key
+
+# Fichiers runtime BIND (owned by bind user)
+bind9/zones/*.jnl
+bind9/zones/K*
+bind9/zones/db-*
+bind9-secondary/zones/*.jnl
+bind9-secondary/zones/K*
+bind9-secondary/zones/db-*
+
+# ============================================
+# TRAEFIK (certificats)
+# ============================================
+traefik/certs/*.key
+traefik/certs/*.crt
+
+# ============================================
+# BACKEND (Python)
+# ============================================
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 venv/
 .venv/
+backend/logs/*
+!backend/logs/.gitkeep
 
-# Frontend
+# ============================================
+# FRONTEND (Node)
+# ============================================
 node_modules/
 dist/
 build/
+.vite/
+frontend/dist/
 
-# IDE
+# ============================================
+# ANSIBLE
+# ============================================
+ansible/*.retry
+ansible/inventory/hosts.local
+
+
+docker-compose.override.yml
+docker-compose.*.bak
+
+
 .vscode/
 .idea/
 *.swp
 *.swo
-# Backend logs
-backend/logs/*
-!backend/logs/.gitkeep
-
-# Frontend build local
-frontend/dist/
-
-# Ansible
-ansible/*.retry
-ansible/inventory/hosts.local
-
-# Wazuh runtime
-wazuh/
-# Compose overrides locaux
-docker-compose.override.yml
-docker-compose.*.bak
-
-bind9/config/tsig.key
-
-# BIND9 rndc keys (secrets)
-bind9/config/rndc.key
-bind9-secondary/config/rndc.key
-
-# Traefik certificates (secrets)
-traefik/certs/*.key
-traefik/certs/*.crt
+.DS_Store
+Thumbs.db

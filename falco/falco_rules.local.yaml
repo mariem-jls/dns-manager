@@ -1,0 +1,46 @@
+# Local rules for DNS Manager. Standard Falco rules are loaded separately.
+- rule: Shell spawned in DNS container
+  desc: Detect a shell started in a DNS Manager container.
+  condition: >
+    spawned_process and container
+    and container.name startswith "dns-"
+    and container.name != dns-falco
+    and container.name != dns-falcosidekick
+    and proc.name in (sh, bash, dash, zsh, ksh)
+    and not proc.cmdline contains "pg_isready"
+    and not proc.cmdline contains "wget --no-verbose"
+    and not proc.cmdline contains "curl -fsS"
+    and not proc.cmdline contains "named-checkconf"
+  output: >
+    Shell spawned in DNS container
+    (user=%user.name command=%proc.cmdline container=%container.name image=%container.image.repository)
+  priority: WARNING
+  tags: [container, shell, dns]
+
+- rule: Write sensitive file in DNS container
+  desc: Detect writes to sensitive system files in a DNS Manager container.
+  condition: >
+    open_write and container
+    and container.name startswith "dns-"
+    and container.name != dns-falco
+    and container.name != dns-falcosidekick
+    and fd.name in (/etc/passwd, /etc/shadow, /etc/sudoers)
+  output: >
+    Sensitive file modified in DNS container
+    (user=%user.name file=%fd.name command=%proc.cmdline container=%container.name)
+  priority: CRITICAL
+  tags: [container, filesystem, dns]
+
+- rule: Read sensitive proc file in DNS container
+  desc: Detect reads of sensitive proc files in a DNS Manager container.
+  condition: >
+    open_read and container
+    and container.name startswith "dns-"
+    and container.name != dns-falco
+    and container.name != dns-falcosidekick
+    and fd.name in (/proc/sysrq-trigger, /proc/kcore, /proc/kallsyms)
+  output: >
+    Sensitive proc file read in DNS container
+    (user=%user.name file=%fd.name command=%proc.cmdline container=%container.name)
+  priority: WARNING
+  tags: [container, filesystem, proc, dns]

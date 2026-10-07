@@ -39,3 +39,12 @@ export async function fetchSecurityAudit(limit = 20) {
   const r = await client.get(`/api/security/audit?limit=${limit}`)
   return r.data
 }
+export async function fetchFalcoEvents(limit = 20) {
+  const r = await client.get(`/api/security/falco/events?limit=${limit}`)
+  return r.data
+}
+
+export async function fetchFalcoStats() {
+  const r = await client.get('/api/security/falco/stats')
+  return r.data
+}

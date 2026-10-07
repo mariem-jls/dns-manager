@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import Layout from '../../components/Layout/Layout'
 import Card from '../../components/UI/Card'
 import Button from '../../components/UI/Button'
@@ -12,6 +12,8 @@ import {
   fetchSecurityAudit,
   rotateDnssec,
   signDnssec,
+  fetchFalcoEvents,
+  fetchFalcoStats,
 } from '../../api/security'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -36,6 +38,21 @@ const formatDuration = (date: string | null | undefined) => {
   if (days === 0) return "Aujourd'hui"
   if (days === 1) return 'Demain'
   return `Dans ${days} jours`
+}
+
+// Helper : tone pour priorité Falco
+const falcoPriorityTone = (priority: string) => {
+  switch (priority?.toLowerCase()) {
+    case 'critical':
+    case 'error':
+      return 'bg-[#ffebe9] text-[#cf222e]'
+    case 'warning':
+      return 'bg-[#fff8c5] text-[#9a6700]'
+    case 'notice':
+      return 'bg-[#ddf4ff] text-[#0969da]'
+    default:
+      return 'bg-[#f6f8fa] text-[#586069]'
+  }
 }
 
 export default function SecurityPage() {
@@ -64,6 +81,18 @@ export default function SecurityPage() {
     queryKey: ['security-audit'],
     queryFn: () => fetchSecurityAudit(10),
     refetchInterval: 30_000,
+  })
+
+  // Falco queries
+  const falcoEventsQuery = useQuery({
+    queryKey: ['security-falco-events'],
+    queryFn: () => fetchFalcoEvents(20),
+    refetchInterval: 30_000,
+  })
+  const falcoStatsQuery = useQuery({
+    queryKey: ['security-falco-stats'],
+    queryFn: fetchFalcoStats,
+    refetchInterval: 60_000,
   })
 
   // Mutations
@@ -118,6 +147,8 @@ export default function SecurityPage() {
   const rpzEntries = rpzQuery.data?.items ?? []
   const dotDoh = dotDohQuery.data ?? { dot: {}, doh: {} }
   const auditLogs = auditQuery.data?.items ?? []
+  const falcoEvents = falcoEventsQuery.data?.items ?? []
+  const falcoStats = falcoStatsQuery.data ?? null
 
   // Cartes sécurité
   const securityCards = [
@@ -134,16 +165,31 @@ export default function SecurityPage() {
       subtitle: rpzEntries.length > 0 ? 'Liste noire active' : 'Liste noire vide',
     },
     {
-      label: 'DoT',
-      value: dotDoh.dot?.enabled ? `Port ${dotDoh.dot.port}` : 'Désactivé',
-      tone: dotDoh.dot?.enabled ? 'text-[#1a7f37]' : 'text-[#cf222e]',
-      subtitle: 'DNS over TLS',
+      label: 'Falco',
+      value: falcoStats ? `${falcoStats.total} événement(s)` : 'Inactif',
+      tone:
+        (falcoStats?.by_priority?.Critical ?? 0) > 0
+          ? 'text-[#cf222e]'
+          : (falcoStats?.by_priority?.Warning ?? 0) > 0
+            ? 'text-[#9a6700]'
+            : 'text-[#1a7f37]',
+      subtitle: 'Runtime security',
     },
     {
-      label: 'DoH',
-      value: dotDoh.doh?.enabled ? `Port ${dotDoh.doh.port}` : 'Désactivé',
-      tone: dotDoh.doh?.enabled ? 'text-[#1a7f37]' : 'text-[#cf222e]',
-      subtitle: 'DNS over HTTPS',
+      label: 'DoT / DoH',
+      value:
+        dotDoh.dot?.enabled && dotDoh.doh?.enabled
+          ? 'Actifs'
+          : dotDoh.dot?.enabled || dotDoh.doh?.enabled
+            ? 'Partiel'
+            : 'Désactivés',
+      tone:
+        dotDoh.dot?.enabled && dotDoh.doh?.enabled
+          ? 'text-[#1a7f37]'
+          : dotDoh.dot?.enabled || dotDoh.doh?.enabled
+            ? 'text-[#9a6700]'
+            : 'text-[#cf222e]',
+      subtitle: 'Transport sécurisé',
     },
   ]
 
@@ -156,7 +202,7 @@ export default function SecurityPage() {
           </p>
           <h1 className="mt-1 text-3xl font-bold text-[#24292f]">Security</h1>
           <p className="mt-2 max-w-2xl text-sm text-[#586069]">
-            DNSSEC, RPZ et exposition DoT/DoH pour piloter la posture de sécurité DNS.
+            DNSSEC, RPZ, Falco et exposition DoT/DoH pour piloter la posture de sécurité DNS.
           </p>
         </div>
         <div className="rounded-full border border-[#d0d7de] bg-white px-3 py-1 text-sm text-[#586069] shadow-sm">
@@ -175,13 +221,106 @@ export default function SecurityPage() {
       {/* ============================================ */}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {securityCards.map((card) => (
-          <Card key={card.label} className="border border-[#d0d7de] shadow-[0_1px_2px_rgba(27,31,36,0.04)]">
+          <Card
+            key={card.label}
+            className="border border-[#d0d7de] shadow-[0_1px_2px_rgba(27,31,36,0.04)]"
+          >
             <div className="text-sm text-[#586069]">{card.label}</div>
-            <div className={`mt-2 text-2xl font-semibold ${card.tone}`}>{card.value}</div>
+            <div className={`mt-2 text-2xl font-semibold ${card.tone}`}>
+              {card.value}
+            </div>
             <div className="mt-1 text-xs text-[#586069]">{card.subtitle}</div>
           </Card>
         ))}
       </div>
+
+      {/* ============================================ */}
+      {/* Falco - Événements runtime security */}
+      {/* ============================================ */}
+      <Card className="mt-6 border border-[#d0d7de] shadow-[0_1px_2px_rgba(27,31,36,0.04)]">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-[#24292f]">
+              Falco — Runtime Security
+            </h2>
+            <p className="mt-1 text-xs text-[#586069]">
+              Détection d'intrusion en temps réel dans les conteneurs DNS
+            </p>
+          </div>
+          <span className="text-sm text-[#586069]">
+            {falcoStats?.total ?? 0} événement(s)
+          </span>
+        </div>
+
+        {/* Compteurs par priorité */}
+        {falcoStats?.by_priority && Object.keys(falcoStats.by_priority).length > 0 && (
+          <div className="mb-4 grid gap-3 md:grid-cols-4">
+            {['Critical', 'Warning', 'Notice', 'Info'].map((priority) => {
+              const count = falcoStats.by_priority[priority] ?? 0
+              if (count === 0) return null
+              return (
+                <div
+                  key={priority}
+                  className={`rounded-lg border p-3 ${falcoPriorityTone(priority).replace('text-', 'border-').split(' ')[0]} ${falcoPriorityTone(priority)}`}
+                >
+                  <div className="text-xs font-medium uppercase">{priority}</div>
+                  <div className="mt-1 text-2xl font-bold">{count}</div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Liste des événements */}
+        <div className="max-h-96 space-y-2 overflow-y-auto">
+          {falcoEventsQuery.isLoading && (
+            <div className="py-4 text-sm text-[#586069]">Chargement...</div>
+          )}
+          {!falcoEventsQuery.isLoading && falcoEvents.length === 0 && (
+            <div className="rounded-md border border-[#d0d7de] bg-[#f6f8fa] p-6 text-center text-sm text-[#586069]">
+              Aucun événement Falco détecté. C'est une bonne nouvelle.
+            </div>
+          )}
+          {falcoEvents.map((event: any) => {
+            const tone = falcoPriorityTone(event.priority)
+            return (
+              <div
+                key={event.id}
+                className="rounded-lg border border-[#d0d7de] p-3"
+              >
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <span
+                    className={`rounded-full px-2.5 py-1 text-xs font-semibold uppercase ${tone}`}
+                  >
+                    {event.priority}
+                  </span>
+                  <span className="text-xs text-[#586069]">
+                    {formatDate(event.created_at)}
+                  </span>
+                </div>
+                <div className="font-medium text-[#24292f]">{event.rule}</div>
+                <div className="mt-1 font-mono text-xs text-[#586069] break-all">
+                  {event.output}
+                </div>
+                <div className="mt-2 flex flex-wrap gap-3 text-xs text-[#586069]">
+                  {event.container_name && (
+                    <span>
+                      Container:{' '}
+                      <strong className="text-[#24292f]">{event.container_name}</strong>
+                    </span>
+                  )}
+                  {event.user_name && (
+                    <span>
+                      User:{' '}
+                      <strong className="text-[#24292f]">{event.user_name}</strong>
+                    </span>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </Card>
 
       {/* ============================================ */}
       {/* DNSSEC + DoT/DoH */}
@@ -241,7 +380,9 @@ export default function SecurityPage() {
                       className="flex items-center justify-between rounded-md border border-[#d0d7de] bg-white px-3 py-2"
                     >
                       <div>
-                        <div className="font-mono text-sm text-[#24292f]">{info.zone}</div>
+                        <div className="font-mono text-sm text-[#24292f]">
+                          {info.zone}
+                        </div>
                         <div className="text-xs text-[#586069]">
                           {info.has_ksk ? 'KSK' : '—'} / {info.has_zsk ? 'ZSK' : '—'}
                         </div>
@@ -270,17 +411,25 @@ export default function SecurityPage() {
           <div className="grid gap-4 md:grid-cols-2">
             <div className="rounded-lg border border-[#d0d7de] p-4">
               <div className="text-sm text-[#586069]">DNS over TLS</div>
-              <div className={`mt-2 text-lg font-semibold ${dotDoh.dot?.enabled ? 'text-[#1a7f37]' : 'text-[#cf222e]'}`}>
+              <div
+                className={`mt-2 text-lg font-semibold ${dotDoh.dot?.enabled ? 'text-[#1a7f37]' : 'text-[#cf222e]'}`}
+              >
                 {dotDoh.dot?.enabled ? 'Activé' : 'Inactif'}
               </div>
-              <div className="mt-1 text-sm text-[#586069]">Port {dotDoh.dot?.port ?? '—'}</div>
+              <div className="mt-1 text-sm text-[#586069]">
+                Port {dotDoh.dot?.port ?? '—'}
+              </div>
             </div>
             <div className="rounded-lg border border-[#d0d7de] p-4">
               <div className="text-sm text-[#586069]">DNS over HTTPS</div>
-              <div className={`mt-2 text-lg font-semibold ${dotDoh.doh?.enabled ? 'text-[#1a7f37]' : 'text-[#cf222e]'}`}>
+              <div
+                className={`mt-2 text-lg font-semibold ${dotDoh.doh?.enabled ? 'text-[#1a7f37]' : 'text-[#cf222e]'}`}
+              >
                 {dotDoh.doh?.enabled ? 'Activé' : 'Inactif'}
               </div>
-              <div className="mt-1 text-sm text-[#586069]">Port {dotDoh.doh?.port ?? '—'}</div>
+              <div className="mt-1 text-sm text-[#586069]">
+                Port {dotDoh.doh?.port ?? '—'}
+              </div>
             </div>
           </div>
 
@@ -328,7 +477,7 @@ export default function SecurityPage() {
             </Button>
           </form>
 
-          <div className="mt-4 space-y-2 max-h-64 overflow-auto">
+          <div className="mt-4 max-h-64 space-y-2 overflow-auto">
             {rpzEntries.length === 0 && (
               <div className="py-4 text-sm text-[#586069]">
                 Aucun domaine bloqué. Ajoutez-en un ci-dessus.
@@ -361,7 +510,7 @@ export default function SecurityPage() {
             </span>
           </div>
 
-          <div className="space-y-2 max-h-64 overflow-auto">
+          <div className="max-h-64 space-y-2 overflow-auto">
             {auditQuery.isLoading && (
               <div className="py-4 text-sm text-[#586069]">Chargement...</div>
             )}
