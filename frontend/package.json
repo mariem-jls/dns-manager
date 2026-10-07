@@ -13,7 +13,7 @@
     "@supabase/supabase-js": "^2.109.0",
     "@tanstack/react-query": "^5.102.8",
     "axios": "^1.6.0",
-    "react": "^18.2.0",
+    "react": "^19.3.0",
     "react-dom": "^18.2.0",
     "react-hook-form": "^7.48.0",
     "react-hot-toast": "^2.4.0",
